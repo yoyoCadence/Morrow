@@ -63,3 +63,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **E0.1 專案骨架與單一文件真相** — Runtime、core、web、canonical docs。新環境可 build；只有一份 Task 檔（本檔）。（2026-10-05）
 - [x] **E0.2 Event／DB／jobs** — Persistence、contracts。Transaction 回滾不留下孤兒 job；重送冪等。（2026-10-05）
 - [x] **E0.3 Provider capability／budget** — Adapters、source health。429／402、quota、raw unit ambiguity 都正確降級。實際權限資料待 E1.0。（2026-10-05）
+- [x] `dev-env.ps1` 檢查 Node 版本：PATH 上的 Node 不符 `engines` 時改用 toolchain 的 Node，不需要升級其他專案共用的系統 Node。（2026-10-05）

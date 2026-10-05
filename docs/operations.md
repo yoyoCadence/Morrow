@@ -4,13 +4,14 @@
 
 ## 工具鏈
 
-Node.js 與 PostgreSQL 可以用任何方式安裝，只要 `node`、`npm`、`psql` 在 PATH 上即可。
+Node.js 與 PostgreSQL 可以用任何方式安裝，只要 `node`、`npm`、`psql` 在 PATH 上，而且 Node 是 `.node-version` 的版本或之後的同一大版本（目前是 24.19.0 以上的 24.x）即可。
 
-沒有管理員權限時用 `scripts\setup-toolchain.ps1`：
+沒有管理員權限，或系統已裝的 Node 版本不符、又不想動到其他專案使用的系統 Node 時，用 `scripts\setup-toolchain.ps1`：
 
 - 版本與 SHA-256 固定在 [scripts/toolchain-versions.psd1](../scripts/toolchain-versions.psd1)。Node 的雜湊值與官方 `SHASUMS256.txt` 一致；EDB 沒有為 PostgreSQL 的 zip 發布雜湊檔，所以釘的是第一次下載時觀察到的值。
 - 安裝位置 `%LOCALAPPDATA%\Morrow\toolchain`，約 610 MB。
 - 不修改 PATH、登錄檔，不安裝服務。每個新的 PowerShell 視窗要 `. .\scripts\dev-env.ps1`。
+- `dev-env.ps1` 會沿用 PATH 上已有的 `node`、`psql`。只有當 PATH 上的 Node 版本不符時，才把 toolchain 的 Node 放到 PATH 最前面；這只影響目前的視窗，系統安裝的 Node 不變。
 - 移除：刪掉 `%LOCALAPPDATA%\Morrow\toolchain`。
 
 升級版本時，同時更新 `toolchain-versions.psd1` 的版本與雜湊值，以及 `.node-version` 和 `package.json` 的 `engines`。
@@ -135,3 +136,4 @@ Worker 需要能直接連到：
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |
 | `node` 或 `psql` 找不到 | 這個視窗還沒執行 `. .\scripts\dev-env.ps1` |
+| `npm ci` 回報 `EBADENGINE` | PATH 上的 Node 版本不符。執行 `.\scripts\setup-toolchain.ps1`，再 `. .\scripts\dev-env.ps1` |

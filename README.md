@@ -33,7 +33,7 @@ M0（基礎與契約）已完成：
 ## 第一次設定
 
 ```powershell
-.\scripts\setup-toolchain.ps1     # 已自行安裝 Node 與 PostgreSQL 可略過
+.\scripts\setup-toolchain.ps1     # 已自行安裝 Node 24.19 以上（24.x）與 PostgreSQL 17 可略過
 . .\scripts\dev-env.ps1           # 每個新的 PowerShell 視窗都要執行一次
 .\scripts\pg-local.ps1 init       # 建立本機資料庫，並把連線字串寫進 .env
 npm ci
