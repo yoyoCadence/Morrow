@@ -1,0 +1,58 @@
+# ── 系統檔案 ──────────────────────────────
+.DS_Store
+desktop.ini
+Thumbs.db
+*.lnk
+
+# ── 暫存檔 ────────────────────────────────
+*.tmp
+*.bak
+*.log
+*.cache
+
+# ── 環境變數 / 金鑰（絕對不能上傳）──────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets.json
+credentials.json
+
+# ── Node.js ───────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Python ────────────────────────────────
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# ── 測試覆蓋率 ────────────────────────────
+coverage/
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
+# ── 編輯器設定 ────────────────────────────
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# ── 常見建置輸出 ──────────────────────────
+.next/
+.vite/
+.turbo/
+
+# ── 私密資料夾 ────────────────────────────
+私密/
+private/
