@@ -1,0 +1,11 @@
+# Store text with LF in the repository on every platform.
+* text=auto
+
+# Migration checksums are computed over file content, so SQL must check out
+# identically everywhere.
+*.sql text eol=lf
+
+# PowerShell 5.1 reads BOM-less scripts in the system code page; keep them
+# ASCII and CRLF.
+*.ps1 text eol=crlf
+*.psd1 text eol=crlf

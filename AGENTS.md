@@ -41,7 +41,12 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
   - Schema changes are additive migrations with explicit converters. Never silently rewrite past decisions.
   - Never expose `raw_sign_transaction`, `send_arbitrary_transaction`, or `export_private_key`.
   - No new service cost in M0–M4. M5–M8 are roadmap only and are not authorized.
-- **Verification commands:** Not available yet. They are added with the M0 scaffolding and recorded here once they exist.
+- **Verification commands:** Run from the repo root. On a machine set up with `scripts\setup-toolchain.ps1`, dot-source `scripts\dev-env.ps1` first so `node` and `psql` are on PATH.
+  - `npm run typecheck` — type-check core, runtime and web
+  - `npm run build` — production build of the server and the dashboard
+  - `npm test` — all tests. Needs the local PostgreSQL running (`scripts\pg-local.ps1 start`) and `MORROW_TEST_DATABASE_URL` in `.env`
+  - `npm run test:unit` — only the tests that need no database
+  - `npm run migrate` — migration smoke check against the local database
 
 ---
 
@@ -49,10 +54,18 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
 
 > Fill only after the project has stable facts worth preserving.
 
+> As of M0 (2026-10-05). Details: `docs/architecture.md`, `docs/contracts.md`, `docs/operations.md`. Status and evidence: `PROJECT_STATUS.md`.
+
 - **Main entry points:**
-- **Storage / data model:**
-- **Test coverage:**
-- **Deployment / cache notes:**
+  - `apps/runtime/src/cli.ts` — every command (`migrate`, `api`, `worker`, `stop`, `probe`, `status`)
+  - `apps/runtime/src/app/processes.ts` — wiring of the API and worker processes; job handlers are registered in `defaultHandlers`
+  - `apps/runtime/src/providers/client.ts` — `ProviderClient.request()`, the only path to a data provider. Never call `fetch` on a provider directly.
+  - `apps/runtime/src/providers/registry.ts` — provider definitions and the capability list
+  - `packages/core/src/index.ts` — contracts
+  - `apps/web/src/App.tsx` — dashboard
+- **Storage / data model:** Local PostgreSQL 17. Schema lives in `apps/runtime/migrations/`; applied migrations are immutable (checksummed), so changes are new files. Append-only tables (`raw_payloads`, `raw_observations`, `events`, `session_gaps`, `quota_events`, `provider_probes`, `audit_log`) reject UPDATE, DELETE and TRUNCATE by trigger. `jobs` is the queue and the transactional outbox; `source_health` and `quota_counters` are mutable projections.
+- **Test coverage:** `node:test`, run against compiled output. `*.test.ts` needs no database; `*.dbtest.ts` runs against a real PostgreSQL, each file in its own throwaway schema. Tests never contact a real provider: provider behaviour is exercised against a local HTTP server. No parser, strategy or Paper-trading code exists yet, so none is tested.
+- **Deployment / cache notes:** Runs only on the operator's machine, as two foreground processes (API and worker), while the machine is on. Not a service, no cloud deployment. The API binds to `127.0.0.1` only. The dashboard is a static build (`apps/web/dist`) served by the API; rebuild it after changing `apps/web`. The data directory is outside the repo and has no backup yet.
 
 ---
 
