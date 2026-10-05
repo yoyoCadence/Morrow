@@ -9,13 +9,39 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
 > At project creation, the agent should fill or update this section from the user's initial project description.
 > If key details are missing, ask concise follow-up questions before implementation.
 
-- **Project name:**
-- **Project goal:**
-- **Target users:**
+> Source: `docs/plans/active-plan.md` (approved design baseline, 2026-10-05). If this section and the blueprint disagree, the blueprint wins until this section is updated.
+
+- **Project name:** Morrow — Event-Driven Investment OS
+- **Project goal:** Build an auditable investment research loop: `Discovery → Events → Research → Underwriting → Thesis → Strategy → Risk → Execution → Monitoring → Attribution → Calibration`. First market is Solana meme, micro-cap, and emerging-narrative tokens. The MVP (milestones M0–M4) ends at real data + research + a Paper trading loop. It is meant to prove the data, research, decision, and accounting flow — not profitability or unattended trading.
+- **Target users:** Personal use. Single tenant, single operator.
 - **Tech stack:**
+  - TypeScript on Node.js 24 LTS; npm workspaces with a committed lockfile
+  - Backend: Fastify with explicit application services; one codebase, two entrypoints (API and background worker)
+  - Frontend: React + Vite, built to static files served by the local API
+  - Database: local PostgreSQL 17 via `pg`, versioned SQL migrations
+  - Queue: PostgreSQL jobs + transactional outbox/inbox (at-least-once, consumer dedupe)
+  - Layout: `apps/runtime`, `apps/web`, `packages/core` (modular monolith)
+  - Not used: Kafka, Redis, RabbitMQ, Temporal, graph DB, vector DB, microservices, Next.js, paid LLM APIs, Docker as a prerequisite
 - **High-risk areas** (auth / DB schema / payments / deployment / etc.):
+  - Live-mode gating: all live limits are 0. No signer, private key, or funded wallet exists in M0–M4, and nothing may promote itself to a live mode.
+  - DB schema and migrations, especially append-only tables (raw observations, audit, ledger).
+  - Paper accounting: token amounts are integer strings and money/ratios are explicit-precision decimals. Never JavaScript floats.
+  - Provider credentials: secret redaction in logs, never in the frontend, a ResearchPacket, or Git.
+  - Quota and budget enforcement: no x402 or automatic payment, no paid LLM API, no bypassing rate limits or switching accounts to dodge them.
+  - Untrusted external content (token metadata, news, websites, model output) reaching AI import or strategy input.
+  - Local API exposure: loopback only, Host/Origin validation, session/CSRF protection on writes.
 - **Architecture constraints:**
-- **Verification commands:**
+  - Fixed pipeline: provider adapters → raw evidence → canonical events → discovery → research packet → versioned thesis → deterministic strategy → risk/reservation → Paper ledger → monitoring/attribution/evaluation.
+  - Provider-specific types must not leak into `packages/core`.
+  - AI only researches and proposes. It never trades, signs, changes risk limits, or promotes a strategy.
+  - Assets are identified by `namespace + network + reference` (Solana reference = mint). Never by symbol.
+  - Store time in UTC, display in Asia/Taipei. Keep `event_time`, `observed_at`, and `available_at` separate; never substitute fetch time for a missing source time.
+  - `KNOWN / UNKNOWN / UNSUPPORTED / STALE / CONFLICTING` must stay distinguishable. Missing data is not zero.
+  - Paper and live records are fully separated. No fake signatures; a quote model is never labelled as an on-chain fill.
+  - Schema changes are additive migrations with explicit converters. Never silently rewrite past decisions.
+  - Never expose `raw_sign_transaction`, `send_arbitrary_transaction`, or `export_private_key`.
+  - No new service cost in M0–M4. M5–M8 are roadmap only and are not authorized.
+- **Verification commands:** Not available yet. They are added with the M0 scaffolding and recorded here once they exist.
 
 ---
 
