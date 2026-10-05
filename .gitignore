@@ -52,6 +52,7 @@ blob-report/
 .next/
 .vite/
 .turbo/
+*.tsbuildinfo
 
 # ── 私密資料夾 ────────────────────────────
 私密/

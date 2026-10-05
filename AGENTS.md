@@ -9,13 +9,44 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
 > At project creation, the agent should fill or update this section from the user's initial project description.
 > If key details are missing, ask concise follow-up questions before implementation.
 
-- **Project name:**
-- **Project goal:**
-- **Target users:**
+> Source: `docs/plans/active-plan.md` (approved design baseline, 2026-10-05). If this section and the blueprint disagree, the blueprint wins until this section is updated.
+
+- **Project name:** Morrow — Event-Driven Investment OS
+- **Project goal:** Build an auditable investment research loop: `Discovery → Events → Research → Underwriting → Thesis → Strategy → Risk → Execution → Monitoring → Attribution → Calibration`. First market is Solana meme, micro-cap, and emerging-narrative tokens. The MVP (milestones M0–M4) ends at real data + research + a Paper trading loop. It is meant to prove the data, research, decision, and accounting flow — not profitability or unattended trading.
+- **Target users:** Personal use. Single tenant, single operator.
 - **Tech stack:**
+  - TypeScript on Node.js 24 LTS; npm workspaces with a committed lockfile
+  - Backend: Fastify with explicit application services; one codebase, two entrypoints (API and background worker)
+  - Frontend: React + Vite, built to static files served by the local API
+  - Database: local PostgreSQL 17 via `pg`, versioned SQL migrations
+  - Queue: PostgreSQL jobs + transactional outbox/inbox (at-least-once, consumer dedupe)
+  - Layout: `apps/runtime`, `apps/web`, `packages/core` (modular monolith)
+  - Not used: Kafka, Redis, RabbitMQ, Temporal, graph DB, vector DB, microservices, Next.js, paid LLM APIs, Docker as a prerequisite
 - **High-risk areas** (auth / DB schema / payments / deployment / etc.):
+  - Live-mode gating: all live limits are 0. No signer, private key, or funded wallet exists in M0–M4, and nothing may promote itself to a live mode.
+  - DB schema and migrations, especially append-only tables (raw observations, audit, ledger).
+  - Paper accounting: token amounts are integer strings and money/ratios are explicit-precision decimals. Never JavaScript floats.
+  - Provider credentials: secret redaction in logs, never in the frontend, a ResearchPacket, or Git.
+  - Quota and budget enforcement: no x402 or automatic payment, no paid LLM API, no bypassing rate limits or switching accounts to dodge them.
+  - Untrusted external content (token metadata, news, websites, model output) reaching AI import or strategy input.
+  - Local API exposure: loopback only, Host/Origin validation, session/CSRF protection on writes.
 - **Architecture constraints:**
-- **Verification commands:**
+  - Fixed pipeline: provider adapters → raw evidence → canonical events → discovery → research packet → versioned thesis → deterministic strategy → risk/reservation → Paper ledger → monitoring/attribution/evaluation.
+  - Provider-specific types must not leak into `packages/core`.
+  - AI only researches and proposes. It never trades, signs, changes risk limits, or promotes a strategy.
+  - Assets are identified by `namespace + network + reference` (Solana reference = mint). Never by symbol.
+  - Store time in UTC, display in Asia/Taipei. Keep `event_time`, `observed_at`, and `available_at` separate; never substitute fetch time for a missing source time.
+  - `KNOWN / UNKNOWN / UNSUPPORTED / STALE / CONFLICTING` must stay distinguishable. Missing data is not zero.
+  - Paper and live records are fully separated. No fake signatures; a quote model is never labelled as an on-chain fill.
+  - Schema changes are additive migrations with explicit converters. Never silently rewrite past decisions.
+  - Never expose `raw_sign_transaction`, `send_arbitrary_transaction`, or `export_private_key`.
+  - No new service cost in M0–M4. M5–M8 are roadmap only and are not authorized.
+- **Verification commands:** Run from the repo root. On a machine set up with `scripts\setup-toolchain.ps1`, dot-source `scripts\dev-env.ps1` first so `node` and `psql` are on PATH.
+  - `npm run typecheck` — type-check core, runtime and web
+  - `npm run build` — production build of the server and the dashboard
+  - `npm test` — all tests. Needs the local PostgreSQL running (`scripts\pg-local.ps1 start`) and `MORROW_TEST_DATABASE_URL` in `.env`
+  - `npm run test:unit` — only the tests that need no database
+  - `npm run migrate` — migration smoke check against the local database
 
 ---
 
@@ -23,10 +54,18 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
 
 > Fill only after the project has stable facts worth preserving.
 
+> As of M0 (2026-10-05). Details: `docs/architecture.md`, `docs/contracts.md`, `docs/operations.md`. Status and evidence: `PROJECT_STATUS.md`.
+
 - **Main entry points:**
-- **Storage / data model:**
-- **Test coverage:**
-- **Deployment / cache notes:**
+  - `apps/runtime/src/cli.ts` — every command (`migrate`, `api`, `worker`, `stop`, `probe`, `status`)
+  - `apps/runtime/src/app/processes.ts` — wiring of the API and worker processes; job handlers are registered in `defaultHandlers`
+  - `apps/runtime/src/providers/client.ts` — `ProviderClient.request()`, the only path to a data provider. Never call `fetch` on a provider directly.
+  - `apps/runtime/src/providers/registry.ts` — provider definitions and the capability list
+  - `packages/core/src/index.ts` — contracts
+  - `apps/web/src/App.tsx` — dashboard
+- **Storage / data model:** Local PostgreSQL 17. Schema lives in `apps/runtime/migrations/`; applied migrations are immutable (checksummed), so changes are new files. Append-only tables (`raw_payloads`, `raw_observations`, `events`, `session_gaps`, `quota_events`, `provider_probes`, `audit_log`) reject UPDATE, DELETE and TRUNCATE by trigger. `jobs` is the queue and the transactional outbox; `source_health` and `quota_counters` are mutable projections.
+- **Test coverage:** `node:test`, run against compiled output. `*.test.ts` needs no database; `*.dbtest.ts` runs against a real PostgreSQL, each file in its own throwaway schema. Tests never contact a real provider: provider behaviour is exercised against a local HTTP server. No parser, strategy or Paper-trading code exists yet, so none is tested.
+- **Deployment / cache notes:** Runs only on the operator's machine, as two foreground processes (API and worker), while the machine is on. Not a service, no cloud deployment. The API binds to `127.0.0.1` only. The dashboard is a static build (`apps/web/dist`) served by the API; rebuild it after changing `apps/web`. The data directory is outside the repo and has no backup yet.
 
 ---
 

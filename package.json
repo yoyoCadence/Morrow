@@ -1,0 +1,32 @@
+{
+  "name": "morrow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Morrow - Event-Driven Investment OS (research and Paper only)",
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build:server && npm run build -w @morrow/web",
+    "build:server": "tsc -b",
+    "typecheck": "tsc -b && npm run typecheck -w @morrow/web",
+    "test": "npm run build:server && node --env-file-if-exists=.env --test \"packages/*/dist/**/*.test.js\" \"apps/runtime/dist/**/*.test.js\" \"apps/runtime/dist/**/*.dbtest.js\"",
+    "test:unit": "npm run build:server && node --test \"packages/*/dist/**/*.test.js\" \"apps/runtime/dist/**/*.test.js\"",
+    "migrate": "node --env-file-if-exists=.env apps/runtime/dist/cli.js migrate",
+    "api": "node --env-file-if-exists=.env apps/runtime/dist/cli.js api",
+    "worker": "node --env-file-if-exists=.env apps/runtime/dist/cli.js worker",
+    "stop": "node --env-file-if-exists=.env apps/runtime/dist/cli.js stop",
+    "probe": "node --env-file-if-exists=.env apps/runtime/dist/cli.js probe",
+    "status": "node --env-file-if-exists=.env apps/runtime/dist/cli.js status",
+    "dev:web": "npm run dev -w @morrow/web"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.0",
+    "typescript": "7.0.2"
+  }
+}
