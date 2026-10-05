@@ -6,9 +6,10 @@
 
 ## 現況
 
-- **M0（基礎與契約）完成。** 五項完成門檻中四項達成；第五項「保存 provider entitlement probes」的機制完成且結果已保存，但還沒有取得任何供應商的實際權限資料。
-- **M1 受阻**，原因是網路與憑證，不是程式。見「阻礙」。
-- 系統目前不取得任何市場資料，也沒有任何交易功能，Paper 的也沒有。
+- **M0（基礎與契約）完成。** 五項完成門檻中四項達成；第五項「保存 provider entitlement probes」的機制完成且結果已保存，但除了不需要金鑰的 DEX Screener，還沒有取得任何供應商的實際權限資料。
+- **E1.0 進行中。** 13 個功能的端點都已對照官方文件核對並補齊，OKX 各端點也已依官方價目頁分到 Basic 或 Premium 額度桶。在目前的開發機上實際跑 probe：DEX Screener 回 200，其餘 12 個因為沒有憑證而沒有送出。
+- **M1 受阻**，現在只剩憑證。網路問題在目前的開發機上不存在。見「阻礙」。
+- 系統只有 probe 會取得市場資料，沒有任何資料解析或交易功能，Paper 的也沒有。
 
 ## M0 交付內容
 
@@ -40,7 +41,7 @@
 
 ### Automated
 
-`npm test`：**148 個測試全部通過**，其中 66 個不需要資料庫，82 個對真實的 PostgreSQL 17 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。
+`npm test`：**150 個測試全部通過**，其中 68 個不需要資料庫，82 個對真實的 PostgreSQL 17 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 2 個，見下方「其他涵蓋」。）
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
@@ -55,6 +56,8 @@
 | Raw unit ambiguity 正確降級（E0.3） | `decimal.test`：未確認單位的比例為 `UNKNOWN`，不猜測；placeholder 不是 0 |
 
 其他涵蓋：append-only 表拒絕 UPDATE／DELETE／TRUNCATE、租約過期後重新派發、執行階段的各種接手與衝突情境、API 的 Host／Origin 檢查與只綁 loopback、redirect 不跟隨、回應過大、逾時。
+
+E1.0 新增（`providers.test`）：沒有任何功能的請求帶 `taker`、呼叫 execute／broadcast／send／sign／build 類路徑，或在 body 送出交易；OKX 7 個功能的額度桶與官方價目頁一致。
 
 對供應商的測試使用本機的假 HTTP 伺服器。依藍圖，這屬於自動化測試證據，不是 live 證據。
 
@@ -72,7 +75,7 @@
 
 ### Live data
 
-**沒有取得任何 live 資料。** Probe 的實際結果：
+**第一次 probe（M0，原開發網路）：沒有取得任何 live 資料。**
 
 | 結果 | 數量 | 功能 |
 |---|---|---|
@@ -82,21 +85,35 @@
 
 這證明了降級行為在真實情況下如設計運作，但沒有回答「免費方案實際給了什麼」。
 
+**第二次 probe（E1.0，目前的開發機，2026-10-05 13:53 UTC）：取得第一筆 live 資料。** 端點核對完成後，以 `RESEARCH` 模式啟動 worker 執行 `npm run probe`（job 1）：
+
+| 結果 | 數量 | 功能 |
+|---|---|---|
+| `OK`（HTTP 200） | 1 | `dexscreener/market.tokens`：113 ms，1,406 bytes 的 JSON 陣列，存於 `raw_observations` #1 |
+| `CREDENTIAL_MISSING` | 12 | Jupiter 4 個、OKX 7 個、Helius 1 個：沒有金鑰，請求未送出，也沒有扣額度 |
+
+13 筆 `provider_probes` 都是 `doc_verified = true`，沒有 `ENDPOINT_UNVERIFIED`、`TLS_UNTRUSTED`。Worker 之後以 `npm run stop` 乾淨停止。
+
+DEX Screener 回應的內容：wrapped SOL 只回了 1 個 pair（Orca 的 SOL/USDC，priceUsd 120.78，liquidity.usd 約 3,066 萬）。wrapped SOL 實際上有大量 pool，所以 `tokens/v1` 不能當成「這個 token 的所有 pool」，M1 寫 parser 時要考慮；要列出 pool 應改用 `token-pairs/v1`。
+
 ### Manual／UI
 
 以無頭瀏覽器對執行中的 API 截圖檢查 dashboard：Paper-only 橫幅、整體狀態、資料庫、兩個程序、5 筆資料來源狀態、3 個額度桶、工作佇列都正確顯示，時間為台北時間。沒有做互動測試，也沒有檢查深色模式與窄螢幕。
 
 ### 尚未驗證
 
-- 任何供應商的真實回應格式、實際額度與 rate limit。
-- [registry.ts](apps/runtime/src/providers/registry.ts) 內的端點定義。全部憑記憶寫下，尚未對照官方文件（文件網站在開發時使用的網路上同樣無法讀取），所以都標記 `docVerified: false`。
-- OKX 簽章對真實 API 是否有效。測試只確認它與 OpenSSL 獨立算出的 HMAC 一致。
+- 除 DEX Screener 以外，任何供應商的真實回應格式、實際額度與 rate limit。
+- [registry.ts](apps/runtime/src/providers/registry.ts) 的端點已在 2026-10-05 對照官方文件核對（`docVerified: true`，每筆的 `note` 記錄了依據的文件網址）。OKX 的路徑與參數名稱另外對照了 OKX 官方 CLI 原始碼（`okx/onchainos-skills`，commit `9de8161`）。但除了 DEX Screener，還沒有一個端點收到真實回應，文件與實際行為可能不一致。
+- OKX 簽章對真實 API 是否有效。測試只確認它與 OpenSSL 獨立算出的 HMAC 一致；簽章規則（ISO 時間 + method + 含 query 的 path + body，HMAC-SHA256、Base64）與官方文件一致。
+- OKX 回應外層有自己的 `code` 欄位。目前的 probe 只看 HTTP 狀態碼，所以如果 OKX 用 HTTP 200 加上非 `"0"` 的 `code` 回報錯誤，probe 會記成 `OK`。有了 OKX 憑證跑 probe 時，要打開原始回應確認 `code`。
 - 長時間執行（藍圖要求的三次 60 分鐘 session 屬於 M4）。
 - 休眠後恢復的 `HEARTBEAT_STALL`：只以測試中調整心跳時間的方式驗證，沒有讓機器實際休眠。
 
 ## 阻礙
 
-### 1. 網路封鎖了所有主要資料來源
+### 1. 網路封鎖了所有主要資料來源（目前的開發機已解決）
+
+**2026-10-05 更新**：專案已移到另一台開發機。在這台機器上，DEX Screener、Jupiter、OKX Web3、Helius、Solana 公開 RPC、Telegram 與各家文件網站都能正常建立 TLS 連線，DEX Screener 的 probe 也實際回了 200。原網路的限制沒有改變，所以 live 驗收要在目前這台機器上做。以下是原網路的紀錄。
 
 開發時使用的網路攔截或封鎖 DEX Screener、Jupiter、OKX Web3、Solana 公開 RPC、Telegram，以及這些供應商的文件網站。Helius、npm、GitHub 不受影響。觀察到的細節在 [docs/operations.md](docs/operations.md) 的「網路」一節。
 
@@ -132,19 +149,22 @@
 | 資料庫角色分離 | 威脅模型的控制措施之一 | 未實作；append-only 由 trigger 強制 | 已列入 Backlog |
 | 停止程序 | 未指定 | 另外提供經資料庫的停止請求（`npm run stop`） | Windows 沒有可用的 SIGTERM，否則背景程序每次停止都會被記成異常中止 |
 | Probe 的執行位置 | 未指定 | 由 worker 執行，CLI 只負責排入佇列並等待 | 維持「只有 worker 呼叫供應商」，節流器才有權威性 |
-| OKX 端點與額度桶 | 列出所需功能 | 7 個功能都沒有端點定義，也沒有指定額度桶 | 文件讀不到，不猜測。客戶端會拒絕對計量供應商發出沒有指定額度桶的請求 |
+| OKX 端點與額度桶 | 列出所需功能 | 7 個功能都已定義端點（E1.0）。hot-token、trades 用 Basic；memepump、holder、cluster overview／list／top-holders 用 Premium | 依官方價目頁 [market-api-fee](https://web3.okx.com/onchainos/dev-docs/market/market-api-fee)。M0 時文件讀不到，所以當時沒有定義 |
+| Jupiter quote | 「Jupiter」quote | Swap V2 的 `GET /swap/v2/order`，不帶 `taker` | `/swap/v1/quote` 已被官方標為不再維護。不帶 `taker` 時只回 quote，`transaction` 為 null；帶了 Jupiter 就會組出待簽交易，所以永遠不帶，並有測試把關 |
+| Probe 使用的 token | 未指定 | wrapped SOL（Jupiter quote 另用 USDC 當輸出） | 永久存在、每個端點都認得。只用來確認權限，不代表研究標的 |
 
 沒有降低任何驗收標準。無法取得的 live 證據維持 pending。
 
 ## 下一步
 
-1. 操作人決定執行環境（阻礙 1）並取得憑證（阻礙 2）。
-2. **E1.0**：在可連線的環境對照官方文件核對並補齊端點，執行 `npm run probe`，把實測結果記在這裡。
+1. 操作人申請 Jupiter、Helius、OKX 的免費唯讀憑證並寫入 `.env`（阻礙 2）。
+2. **E1.0 收尾**：在目前的開發機重跑 `npm run probe`，把 12 個功能的實測結果記在這裡；OKX 要同時檢查原始回應的 `code`。每個功能都是 `OK`，或有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`，E1.0 才算完成。
 3. 之後才開始 E1.1 與 E1.2。
 
 ## 交接備註
 
-- 新增供應商功能：在 [registry.ts](apps/runtime/src/providers/registry.ts) 加一筆 `CapabilityDefinition`。計量供應商必須指定 `quotaBucket`，而且該額度桶要有對應的 policy。
+- 新增供應商功能：在 [registry.ts](apps/runtime/src/providers/registry.ts) 加一筆 `CapabilityDefinition`。計量供應商必須指定 `quotaBucket`，而且該額度桶要有對應的 policy。對照官方文件後才設 `docVerified: true`，並在 `note` 寫下依據的網址與日期；OKX 的額度桶以官方價目頁為準。
+- 單位不一致是已知的：OKX holder 的 `holdPercent` 與 cluster overview 的百分比是 0–100，cluster list／top-holders 的 `holdingPercent` 是 0–1 的比例。Parser 不可混用。
 - 所有對供應商的請求都必須經過 `ProviderClient.request()`，不要直接呼叫 `fetch`。
 - 新的 job handler 在 [processes.ts](apps/runtime/src/app/processes.ts) 的 `defaultHandlers` 註冊。Handler 必須能安全地重複執行；用 `markProcessed` 在同一個 transaction 內去重。
 - 已套用的 migration 不可修改，只能新增。

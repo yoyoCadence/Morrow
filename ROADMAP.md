@@ -15,8 +15,8 @@
 
 | 里程碑 | 目標 | 相依 | 狀態 |
 |---|---|---|---|
-| **M0** 基礎與契約 | 專案骨架、契約、migration、原始證據、jobs、健康狀態、額度帳本、Paper-only 設定 | — | **完成**（2026-10-05）。供應商權限的實測資料待補，見下方 |
-| **M1** MINDS＋control slice | 最小供應商 adapter、MINDS 證據、quote model、Paper ledger、risk rejection、replay | M0 | **受阻**：開發時使用的網路封鎖供應商，且缺少憑證 |
+| **M0** 基礎與契約 | 專案骨架、契約、migration、原始證據、jobs、健康狀態、額度帳本、Paper-only 設定 | — | **完成**（2026-10-05）。端點已核對；供應商權限的實測資料待憑證，見下方 |
+| **M1** MINDS＋control slice | 最小供應商 adapter、MINDS 證據、quote model、Paper ledger、risk rejection、replay | M0 | **受阻**：缺少憑證（網路問題在目前的開發機已不存在） |
 | **M2** Discovery＋cohort | Jupiter／OKX discovery、warm ranking、holder／cluster 快照、cohort inventory | M1 | 未開始 |
 | **M3** Underwriting＋組合決策 | ResearchPacket 匯出匯入、thesis 版本、signals、sizing、reservation、Telegram | M2 | 未開始 |
 | **M4** 驗證與 MVP 交付 | Dashboard、session recovery、fault injection、備份還原、基礎 attribution | M3 | 未開始 |
@@ -33,15 +33,15 @@
 | 啟停成功 | 達成 |
 | Secret redaction | 達成 |
 | 任何 live mode 啟動均拒絕 | 達成 |
-| 保存 provider entitlement probes | 機制達成並已保存結果；**實際權限資料尚未取得** |
+| 保存 provider entitlement probes | 機制達成並已保存結果；端點已核對；**需要憑證的 12 個功能實際權限資料尚未取得** |
 
-最後一項的現況：probe 的流程完整運作，13 個功能的結果都已存入資料庫。但在開發網路上，唯一送得出去的請求（DEX Screener）被網路設備攔截，其餘因為沒有憑證或端點尚未核對而沒有送出。所以「免費方案實際給了什麼」這個問題還沒有答案。這要在可連線的網路上、有了憑證之後重跑，列為 M1 的第一個任務。
+最後一項的現況：probe 的流程完整運作，13 個功能的結果都已存入資料庫。在原開發網路上，唯一送得出去的請求（DEX Screener）被網路設備攔截，其餘因為沒有憑證或端點尚未核對而沒有送出。E1.0（2026-10-05）在目前的開發機上補齊並核對了全部端點，重跑 probe：DEX Screener 回 200，其餘 12 個因為沒有憑證而沒有送出。所以 Jupiter、OKX、Helius 的「免費方案實際給了什麼」還沒有答案，要等憑證到位後重跑，這是 E1.0 剩下的部分。
 
 ## M1 之前必須解決
 
-1. **網路**：開發時使用的網路封鎖了 DEX Screener、Jupiter、OKX Web3、Solana 公開 RPC、Telegram，以及這些供應商的文件網站。M1–M4 的 live 驗收在這個網路上無法進行。需要改在不受限制的網路或機器上執行。這是刻意的存取管制，專案不會嘗試繞過。
+1. ~~**網路**~~（目前的開發機已解決，2026-10-05）：原開發網路封鎖了 DEX Screener、Jupiter、OKX Web3、Solana 公開 RPC、Telegram，以及這些供應商的文件網站。目前的開發機可以全部連上，live 驗收要在這台機器上做。這是原網路刻意的存取管制，專案不會嘗試繞過。
 2. **憑證**：Jupiter、Helius、OKX 的免費唯讀 API 金鑰；M3 另需 Telegram Bot token 與 chat ID。
-3. **端點核對**：[apps/runtime/src/providers/registry.ts](apps/runtime/src/providers/registry.ts) 內所有端點都標記為未核對（`docVerified: false`），其中 8 個功能還沒有端點定義。寫 adapter 之前要對照官方文件逐一確認，包含 OKX 各端點屬於 Basic 還是 Premium 額度。
+3. ~~**端點核對**~~（E1.0 完成這部分，2026-10-05）：[apps/runtime/src/providers/registry.ts](apps/runtime/src/providers/registry.ts) 內 13 個功能都已對照官方文件核對並補齊，OKX 各端點也已依官方價目頁分到 Basic 或 Premium。
 
 ## 各里程碑的驗收重點
 

@@ -6,23 +6,24 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 ## Next
 
-> M1 無法開始，直到下方「Blocked」的項目由操作人解決。
+> M1 無法開始，直到下方「Blocked」的憑證由操作人提供，並完成 E1.0。
 
-- [ ] **E1.0 核對供應商端點並取得實際權限資料**（M0 追加，M1 的前置）
-  - 對照官方文件確認 `apps/runtime/src/providers/registry.ts` 內每個端點，補上 8 個尚未定義的端點，並標明 OKX 各端點屬於 Basic 或 Premium 額度。
-  - 設定憑證後在可連線的網路執行 `npm run probe`，把各功能的實測結果寫進 PROJECT_STATUS.md。
-  - 完成條件：每個功能的結果是 `OK`，或是有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`；沒有 `ENDPOINT_UNVERIFIED`、`TLS_UNTRUSTED`。
 - [ ] **E1.1 MINDS evidence**（P0，需 E0.3、E1.0）— Case ingestion、cohort。完成測試：歷史與 current 不混用；缺 107 成員名單時不能標為完成。
 - [ ] **E1.2 Control Paper round-trip**（P0，需 E0.2、E1.0）— Quote、risk、ledger。完成測試：真實 quote 證據；虛擬買賣守恆；沒有假 signature。
 
 ### Blocked — needs the operator
 
-- [ ] 提供可以直接連到 DEX Screener、Jupiter、OKX Web3、Helius 的執行環境（M3 起還需要 Telegram）。目前開發時使用的網路封鎖了這些主機，細節見 [docs/operations.md](docs/operations.md)。
+- [x] 提供可以直接連到 DEX Screener、Jupiter、OKX Web3、Helius 的執行環境（M3 起還需要 Telegram）。原開發網路封鎖了這些主機，細節見 [docs/operations.md](docs/operations.md)。2026-10-05 起改用目前的開發機，全部可以連上。
 - [ ] 申請 Jupiter、Helius、OKX 的免費唯讀 API 憑證，寫入 `.env`。
 - [ ] M3 之前：建立 Telegram Bot，取得 token 與 chat ID，並先對 Bot 送出一則訊息。
 - [ ] 選擇性：提供 MINDS 歷史 107 個成員的名單與當時的證據。只影響 E1.1 的精確歷史重建，不阻擋 MVP。
 
 ## In Progress
+
+- [ ] **E1.0 核對供應商端點並取得實際權限資料**（M0 追加，M1 的前置）
+  - [x] 對照官方文件確認 `apps/runtime/src/providers/registry.ts` 內每個端點，補上 8 個尚未定義的端點，並標明 OKX 各端點屬於 Basic 或 Premium 額度。（2026-10-05）
+  - [ ] 設定憑證後在可連線的網路執行 `npm run probe`，把各功能的實測結果寫進 PROJECT_STATUS.md。2026-10-05 已在目前的開發機跑過一次：DEX Screener `OK`，其餘 12 個 `CREDENTIAL_MISSING`，等憑證。OKX 要另外檢查原始回應的 `code`。
+  - 完成條件：每個功能的結果是 `OK`，或是有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`；沒有 `ENDPOINT_UNVERIFIED`、`TLS_UNTRUSTED`。
 
 ## Backlog
 
