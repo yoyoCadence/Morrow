@@ -14,7 +14,8 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
   jupiter: {
     id: 'jupiter',
     group: 'jupiter',
-    // Blueprint: free key allows 1 request/s; we cap at 30/min, evenly spaced.
+    // Free key: 1 request/s (developers.jup.ag/docs/portal/plans). The
+    // blueprint caps us at 30/min, evenly spaced.
     minIntervalMs: 2_000,
     metered: false,
     authorize(spec, credentials) {
@@ -29,6 +30,7 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
   dexscreener: {
     id: 'dexscreener',
     group: 'dexscreener',
+    // Documented limits are 60 or 300 requests/min depending on the endpoint.
     minIntervalMs: 1_000,
     metered: false,
     authorize(spec) {
@@ -72,7 +74,9 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
   helius: {
     id: 'helius',
     group: 'helius',
-    // Blueprint: free tier allows 10 requests/s.
+    // Free plan: 10 RPC requests/s (helius.dev/docs/billing/plans). DAS and
+    // Enhanced APIs allow only 2/s; nothing calls them yet, and they would need
+    // slower spacing than this.
     minIntervalMs: 250,
     metered: true,
     authorize(spec, credentials) {
@@ -89,23 +93,29 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
   },
 };
 
+// Probes need a token every endpoint knows. Wrapped SOL and USDC are permanent.
 const WRAPPED_SOL_MINT = 'So11111111111111111111111111111111111111112';
+const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
-const UNVERIFIED_NOTE =
-  'Endpoint recalled from provider documentation but not re-checked: the provider and its docs were ' +
-  'unreachable from the build network on 2026-10-05. Verify before relying on it.';
-const NO_ENDPOINT_NOTE =
-  'Required by the blueprint. No endpoint is defined yet because the provider documentation could not be ' +
-  'read from the build network on 2026-10-05.';
+const JUPITER_ORIGIN = 'https://api.jup.ag';
+const OKX_ORIGIN = 'https://web3.okx.com';
+/** OKX `chainIndex` for Solana. */
+const OKX_SOLANA = '501';
+/** Which OKX endpoints draw from the Basic and which from the Premium allowance. */
+const OKX_PRICING = 'https://web3.okx.com/onchainos/dev-docs/market/market-api-fee';
 
-function get(origin: string, path: string): RequestSpec {
-  return { method: 'GET', origin, path };
+function get(origin: string, path: string, query?: Readonly<Record<string, string>>): RequestSpec {
+  return { method: 'GET', origin, path, ...(query !== undefined ? { query } : {}) };
+}
+
+function checked(...sources: string[]): string {
+  return `Checked against ${sources.join(' and ')} on 2026-10-05.`;
 }
 
 /**
- * Every provider capability the blueprint depends on, with what is known about
- * its endpoint. A capability with `probe: null` is reported as
- * ENDPOINT_UNVERIFIED and never called.
+ * Every provider capability the blueprint depends on, with the endpoint behind
+ * it. A capability with `probe: null` is reported as ENDPOINT_UNVERIFIED and
+ * never called.
  */
 export const CAPABILITIES: readonly CapabilityDefinition[] = [
   // Jupiter: discovery of unknown mints, and executable quotes.
@@ -114,29 +124,42 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
     capability: 'tokens.recent',
     quotaBucket: null,
     units: 1,
-    probe: get('https://api.jup.ag', '/tokens/v2/recent'),
-    docVerified: false,
-    note: UNVERIFIED_NOTE,
+    probe: get(JUPITER_ORIGIN, '/tokens/v2/recent'),
+    docVerified: true,
+    note:
+      checked('https://developers.jup.ag/docs/tokens/token-information') +
+      ' "Recent" means the first pool was created recently, not the mint.',
   },
   {
     provider: 'jupiter',
     capability: 'tokens.toptrending',
     quotaBucket: null,
     units: 1,
-    probe: get('https://api.jup.ag', '/tokens/v2/toptrending/5m'),
-    docVerified: false,
-    note: UNVERIFIED_NOTE,
+    probe: get(JUPITER_ORIGIN, '/tokens/v2/toptrending/5m'),
+    docVerified: true,
+    note: checked('https://developers.jup.ag/docs/tokens/token-information') + ' Intervals: 5m, 1h, 6h, 24h.',
   },
   {
     provider: 'jupiter',
     capability: 'tokens.toporganicscore',
     quotaBucket: null,
     units: 1,
-    probe: get('https://api.jup.ag', '/tokens/v2/toporganicscore/5m'),
-    docVerified: false,
-    note: UNVERIFIED_NOTE,
+    probe: get(JUPITER_ORIGIN, '/tokens/v2/toporganicscore/5m'),
+    docVerified: true,
+    note: checked('https://developers.jup.ag/docs/tokens/token-information') + ' Intervals: 5m, 1h, 6h, 24h.',
   },
-  { provider: 'jupiter', capability: 'swap.quote', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
+  {
+    provider: 'jupiter',
+    capability: 'swap.quote',
+    quotaBucket: null,
+    units: 1,
+    // 0.001 SOL to USDC. Without `taker`, Swap V2 /order returns a quote with
+    // `transaction: null`. Never add `taker`: with it Jupiter assembles a
+    // transaction to sign. /swap/v1/quote is deprecated.
+    probe: get(JUPITER_ORIGIN, '/swap/v2/order', { inputMint: WRAPPED_SOL_MINT, outputMint: USDC_MINT, amount: '1000000' }),
+    docVerified: true,
+    note: checked('https://developers.jup.ag/docs/swap/order') + ' Quote only: no `taker`, so no transaction.',
+  },
 
   // DEX Screener: market snapshots.
   {
@@ -145,20 +168,93 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
     quotaBucket: null,
     units: 1,
     probe: get('https://api.dexscreener.com', `/tokens/v1/solana/${WRAPPED_SOL_MINT}`),
-    docVerified: false,
-    note: UNVERIFIED_NOTE,
+    docVerified: true,
+    note: checked('https://docs.dexscreener.com/api/reference') + ' Up to 30 comma-separated addresses; 300 requests/min.',
   },
 
-  // OKX: discovery lists, trades, holders and clusters. Which of the Basic and
-  // Premium buckets each endpoint draws from is unconfirmed, so no bucket is
-  // assigned. The client refuses to call a metered provider without one.
-  { provider: 'okx', capability: 'discovery.memepump', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'discovery.hot_token', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'market.trades', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'token.holders', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'token.cluster_overview', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'token.cluster_list', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
-  { provider: 'okx', capability: 'token.cluster_top_holders', quotaBucket: null, units: 1, probe: null, docVerified: false, note: NO_ENDPOINT_NOTE },
+  // OKX: discovery lists, trades, holders and clusters. Each endpoint draws
+  // from the Basic or the Premium monthly allowance, as listed on the pricing page.
+  {
+    provider: 'okx',
+    capability: 'discovery.memepump',
+    quotaBucket: 'premium',
+    units: 1,
+    // The blueprint polls NEW, MIGRATING and MIGRATED; one stage shows entitlement.
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/memepump/tokenList', { chainIndex: OKX_SOLANA, stage: 'NEW' }),
+    docVerified: true,
+    note: checked('https://web3.okx.com/onchainos/dev-docs/market/market-memepump-get-token-list', OKX_PRICING),
+  },
+  {
+    provider: 'okx',
+    capability: 'discovery.hot_token',
+    quotaBucket: 'basic',
+    units: 1,
+    // rankingType 4 is "Trending"; 5 is "X mentioned".
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/token/hot-token', { rankingType: '4', chainIndex: OKX_SOLANA }),
+    docVerified: true,
+    note: checked('https://web3.okx.com/onchainos/dev-docs/market/market-token-hot-token', OKX_PRICING),
+  },
+  {
+    provider: 'okx',
+    capability: 'market.trades',
+    quotaBucket: 'basic',
+    units: 1,
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/trades', { chainIndex: OKX_SOLANA, tokenContractAddress: WRAPPED_SOL_MINT }),
+    docVerified: true,
+    note: checked('https://web3.okx.com/onchainos/dev-docs/market/market-trades', OKX_PRICING),
+  },
+  {
+    provider: 'okx',
+    capability: 'token.holders',
+    quotaBucket: 'premium',
+    units: 1,
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/token/holder', { chainIndex: OKX_SOLANA, tokenContractAddress: WRAPPED_SOL_MINT }),
+    docVerified: true,
+    note:
+      checked('https://web3.okx.com/onchainos/dev-docs/market/market-token-holder', OKX_PRICING) +
+      ' At most 100 holders. holdPercent is on a 0-100 scale.',
+  },
+  {
+    provider: 'okx',
+    capability: 'token.cluster_overview',
+    quotaBucket: 'premium',
+    units: 1,
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/token/cluster/overview', {
+      chainIndex: OKX_SOLANA,
+      tokenContractAddress: WRAPPED_SOL_MINT,
+    }),
+    docVerified: true,
+    note:
+      checked('https://web3.okx.com/onchainos/dev-docs/market/market-token-cluster-overview', OKX_PRICING) +
+      ' Percent fields are on a 0-100 scale and may be "--".',
+  },
+  {
+    provider: 'okx',
+    capability: 'token.cluster_list',
+    quotaBucket: 'premium',
+    units: 1,
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/token/cluster/list', { chainIndex: OKX_SOLANA, tokenContractAddress: WRAPPED_SOL_MINT }),
+    docVerified: true,
+    note:
+      checked('https://web3.okx.com/onchainos/dev-docs/market/market-token-cluster-list', OKX_PRICING) +
+      ' Top 100 clusters among the top 300 holders. holdingPercent is a 0-1 fraction.',
+  },
+  {
+    provider: 'okx',
+    capability: 'token.cluster_top_holders',
+    quotaBucket: 'premium',
+    units: 1,
+    // rangeFilter 1, 2, 3 = top 10, 50, 100. An aggregate, not an address export.
+    probe: get(OKX_ORIGIN, '/api/v6/dex/market/token/cluster/top-holders', {
+      chainIndex: OKX_SOLANA,
+      tokenContractAddress: WRAPPED_SOL_MINT,
+      rangeFilter: '1',
+    }),
+    docVerified: true,
+    note:
+      checked('https://web3.okx.com/onchainos/dev-docs/market/market-token-cluster-top-holders', OKX_PRICING) +
+      ' holdingPercent is a 0-1 fraction.',
+  },
 
   // Helius: on-chain accounts and transactions.
   {
@@ -173,7 +269,9 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'getHealth' }),
     },
-    docVerified: false,
-    note: UNVERIFIED_NOTE,
+    docVerified: true,
+    note:
+      checked('https://www.helius.dev/docs/api-reference/rpc/http/gethealth', 'https://www.helius.dev/docs/billing/credits') +
+      ' Standard RPC calls cost 1 credit.',
   },
 ];

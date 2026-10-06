@@ -92,6 +92,7 @@ Probe 也算額度。來源在 rate limit 退避期間，probe 一樣會被擋�
 | OKX Premium | 100,000／月 | 70,000 | 85,000 | 藍圖 |
 | Helius credits | 1,000,000／月 | 700,000 | 850,000 | 藍圖只給了供應商上限；警告與硬性上限沿用 OKX 的比例，待量測各端點實際扣點後調整 |
 
+- OKX 各功能扣哪個額度桶，依官方價目頁 [market-api-fee](https://web3.okx.com/onchainos/dev-docs/market/market-api-fee)：hot-token、trades 扣 Basic；memepump、holder、cluster overview／list／top-holders 扣 Premium。
 - 重試、手動刷新、probe、回補全部計入，而且請求失敗也不退還。
 - 到達硬性上限後請求不會送出，直到下一個計費週期。系統不會付款，也不會換帳號繞過。
 - 計費週期目前以 UTC 曆月計算。各供應商實際的重置時間尚未對照帳戶後台確認。
@@ -123,6 +124,8 @@ Worker 需要能直接連到：
 | `mainnet.helius-rpc.com`、`registry.npmjs.org`、`nodejs.org`、`github.com` | 正常 |
 
 這是該網路刻意的存取管制。在這種網路上，系統可以建置、測試、啟動，但拿不到任何市場資料。要取得資料，必須在沒有這些限制的網路或機器上執行。不要用代理、VPN 或關閉憑證驗證來繞過。
+
+2026-10-05 起改用另一台開發機。在這台機器上，`api.dexscreener.com`、`api.jup.ag`、`web3.okx.com`、`mainnet.helius-rpc.com`、`api.mainnet-beta.solana.com`、`api.telegram.org`，以及 `developers.jup.ag`、`docs.dexscreener.com`、`www.helius.dev` 都能正常建立 TLS 連線，DEX Screener 的 probe 也實際回了 200。
 
 ## 疑難排解
 

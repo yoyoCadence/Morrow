@@ -175,6 +175,35 @@ test('capability registry is internally consistent', () => {
   }
 });
 
+test('no capability asks a provider for a transaction', () => {
+  // With `taker`, Jupiter assembles a transaction for that wallet to sign.
+  // This build has no signer and must only ever ask for a quote.
+  for (const capability of CAPABILITIES) {
+    const probe = capability.probe;
+    if (!probe) continue;
+    const key = `${capability.provider}/${capability.capability}`;
+    assert.ok(!('taker' in (probe.query ?? {})), `${key} must not send taker`);
+    assert.doesNotMatch(probe.path, /execute|broadcast|send|sign|build/i, `${key} must not call an execution endpoint`);
+    assert.doesNotMatch(probe.body ?? '', /sendTransaction|sendBundle/i, `${key} must not submit a transaction`);
+  }
+});
+
+test('each OKX capability draws from the bucket its endpoint is billed to', () => {
+  // https://web3.okx.com/onchainos/dev-docs/market/market-api-fee
+  const buckets = Object.fromEntries(
+    CAPABILITIES.filter((capability) => capability.provider === 'okx').map((capability) => [capability.capability, capability.quotaBucket]),
+  );
+  assert.deepEqual(buckets, {
+    'discovery.memepump': 'premium',
+    'discovery.hot_token': 'basic',
+    'market.trades': 'basic',
+    'token.holders': 'premium',
+    'token.cluster_overview': 'premium',
+    'token.cluster_list': 'premium',
+    'token.cluster_top_holders': 'premium',
+  });
+});
+
 test('local budgets stop before the provider would', () => {
   for (const policy of QUOTA_POLICIES) {
     assert.ok(policy.warnAt < policy.hardStopAt, `${policy.provider}/${policy.bucket}`);
