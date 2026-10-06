@@ -166,6 +166,11 @@ test('evidence, events and logs cannot be changed, deleted or truncated', async 
     "INSERT INTO provider_probes (provider, capability, outcome, doc_verified, raw_observation_id) VALUES ('okx', 'x', 'OK', false, $1)",
     [raw.id],
   );
+  await db.pool.query(
+    `INSERT INTO parse_quarantine (raw_observation_id, parser_version, record_ref, field_path, raw_value, reason)
+     VALUES ($1, 'test@1', '$', '$.x', '0.5', 'UNIT_UNVERIFIED')`,
+    [raw.id],
+  );
 
   const mutations: Record<string, string> = {
     raw_payloads: 'byte_length = byte_length',
@@ -175,6 +180,7 @@ test('evidence, events and logs cannot be changed, deleted or truncated', async 
     quota_events: 'units = units',
     provider_probes: "outcome = 'OK'",
     audit_log: "actor = 'someone-else'",
+    parse_quarantine: "reason = 'OK'",
   };
   for (const [table, assignment] of Object.entries(mutations)) {
     const before = await db.pool.query(`SELECT count(*)::int AS n FROM ${table}`);

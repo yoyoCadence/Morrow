@@ -4,6 +4,8 @@ import type { ProviderCredentials } from '../config/config.js';
 import { withTransaction } from '../db/pool.js';
 import { sha256Hex, storeRawObservation, type RequestReason } from '../db/raw-store.js';
 import type { Logger } from '../logging/logger.js';
+import { enqueueParse } from '../parsers/ingest.js';
+import { parserFor } from '../parsers/registry.js';
 import { findQuotaPolicy, reserveQuota } from '../quota/quota-ledger.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
 import { PROVIDERS } from './registry.js';
@@ -135,7 +137,8 @@ interface Attempt {
  *
  * In order, a request is: checked against source health, authorised, charged
  * to the quota ledger, paced by the rate limiter, sent, stored as raw
- * evidence, and reflected in source health. It is never retried here: a retry
+ * evidence, and reflected in source health. A successful response that has a
+ * parser also gets a parse job in that same transaction. It is never retried here: a retry
  * is a new request with its own quota charge, scheduled by the job queue.
  */
 export class ProviderClient {
@@ -216,6 +219,9 @@ export class ProviderClient {
       });
       const next = nextHealth(health, attempt.info, observedAt);
       if (next) await writeSourceHealth(tx, provider.id, capability.capability, next, raw.id);
+      // Evidence and the parsing it calls for commit together, so neither exists without the other.
+      const parser = attempt.info.outcome === 'OK' ? parserFor(provider.id, capability.capability) : null;
+      if (parser) await enqueueParse(tx, raw.id, parser);
       return raw;
     });
 

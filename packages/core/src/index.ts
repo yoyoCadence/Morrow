@@ -5,4 +5,5 @@ export * from './contracts/provenance.js';
 export * from './contracts/event.js';
 export * from './contracts/modes.js';
 export * from './contracts/health.js';
+export * from './contracts/market.js';
 export * from './numeric/decimal.js';

@@ -8,9 +8,13 @@ import { test, type TestContext } from 'node:test';
 import { HealthReport, type EnabledMode } from '@morrow/core';
 import { buildApiServer } from '../api/server.js';
 import type { AppConfig } from '../config/config.js';
-import { createPool } from '../db/pool.js';
+import { createPool, withTransaction } from '../db/pool.js';
+import { storeRawObservation } from '../db/raw-store.js';
 import { enqueueJob, getJobState } from '../jobs/job-queue.js';
 import { sleep, type JobHandler } from '../jobs/worker.js';
+import { dexscreenerTokensParser } from '../parsers/dexscreener-tokens.js';
+import { WSOL_TOKENS_RESPONSE } from '../parsers/fixtures/dexscreener-tokens-wsol.js';
+import { enqueueParse, PARSE_JOB_KIND } from '../parsers/ingest.js';
 import { PROBE_JOB_KIND } from '../providers/probes.js';
 import { requestStop, SessionConflictError } from '../session/run-session.js';
 import { createTestDb, defer, silentLogger, type TestDb } from '../test-support/db.js';
@@ -279,9 +283,10 @@ test('only one worker can run at a time', async (t) => {
 
 test('OFF mode registers nothing that could contact a provider', async (t) => {
   const db = await freshDb(t);
-  assert.deepEqual([...defaultHandlers(deps(db, 'OFF'), () => '1').keys()], []);
-  assert.deepEqual([...defaultHandlers(deps(db, 'RESEARCH'), () => '1').keys()], [PROBE_JOB_KIND]);
-  assert.deepEqual([...defaultHandlers(deps(db, 'PAPER'), () => '1').keys()], [PROBE_JOB_KIND]);
+  // Parsing reads stored evidence only, so it is the one handler OFF registers.
+  assert.deepEqual([...defaultHandlers(deps(db, 'OFF'), () => '1').keys()], [PARSE_JOB_KIND]);
+  assert.deepEqual([...defaultHandlers(deps(db, 'RESEARCH'), () => '1').keys()], [PARSE_JOB_KIND, PROBE_JOB_KIND]);
+  assert.deepEqual([...defaultHandlers(deps(db, 'PAPER'), () => '1').keys()], [PARSE_JOB_KIND, PROBE_JOB_KIND]);
 
   // With no handler, a provider job simply waits; it is not run and not lost.
   const worker = await startWorkerProcess(deps(db, 'OFF'));
@@ -291,4 +296,40 @@ test('OFF mode registers nothing that could contact a provider', async (t) => {
   assert.equal((await getJobState(db.pool, jobId))?.status, 'queued');
   const sent = await db.pool.query('SELECT 1 FROM raw_observations');
   assert.equal(sent.rowCount, 0);
+});
+
+test('the worker parses stored evidence even in OFF mode, without contacting a provider', async (t) => {
+  const db = await freshDb(t);
+  const raw = await storeRawObservation(db.pool, {
+    provider: 'dexscreener',
+    providerGroup: 'dexscreener',
+    capability: 'market.tokens',
+    requestMethod: 'GET',
+    requestUrl: 'https://api.dexscreener.com/tokens/v1/solana/So11111111111111111111111111111111111111112',
+    requestFingerprint: 'b'.repeat(64),
+    reason: 'probe',
+    outcome: 'OK',
+    httpStatus: 200,
+    contentType: 'application/json',
+    body: Buffer.from(WSOL_TOKENS_RESPONSE.body, 'utf8'),
+    errorClass: null,
+    errorDetail: null,
+    durationMs: 113,
+    observedAt: new Date(WSOL_TOKENS_RESPONSE.observedAt),
+    runSessionId: null,
+  });
+  await withTransaction(db.pool, (tx) => enqueueParse(tx, raw.id, dexscreenerTokensParser));
+  const job = await db.pool.query<{ id: string }>('SELECT id FROM jobs WHERE kind = $1', [PARSE_JOB_KIND]);
+  const jobId = job.rows[0]?.id ?? '';
+
+  const worker = await startWorkerProcess(deps(db, 'OFF'));
+  defer(t, () => worker.stop('test'));
+  const deadline = Date.now() + 10_000;
+  while ((await getJobState(db.pool, jobId))?.status !== 'succeeded' && Date.now() < deadline) await sleep(50);
+
+  assert.equal((await getJobState(db.pool, jobId))?.status, 'succeeded');
+  const events = await db.pool.query("SELECT 1 FROM events WHERE domain = 'market' AND action = 'pair.snapshot'");
+  assert.equal(events.rowCount, 1);
+  const sent = await db.pool.query('SELECT 1 FROM raw_observations');
+  assert.equal(sent.rowCount, 1, 'only the stored observation; nothing new was fetched');
 });
