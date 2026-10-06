@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { ProviderCredentials } from '../config/config.js';
 import { QUOTA_POLICIES } from '../quota/quota-ledger.js';
 import { classifyFetchError, classifyStatus, parseRetryAfterMs } from './client.js';
+import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
 import { CAPABILITIES, PROVIDERS } from './registry.js';
@@ -172,6 +173,53 @@ test('capability registry is internally consistent', () => {
         `${key} names a bucket with no policy`,
       );
     }
+  }
+});
+
+test('an OKX body is a success only when its envelope says so', () => {
+  const read = (text: string) => readOkxEnvelope(Buffer.from(text));
+
+  assert.equal(read('{"code":"0","msg":"","data":[]}'), null);
+  assert.equal(read('{"code":0,"data":{}}'), null, 'some endpoints send a numeric code');
+  assert.equal(read('[{"chainIndex":"501"}]'), null, 'a bare array has no envelope and passes, as in OKX’s own client');
+
+  const verdicts = Object.fromEntries(
+    ['50011', '50026', '50103', '50107', '50111', '50113', '50114', '50125', '80001', '50014', '51000', '99999'].map((code) => [
+      code,
+      read(`{"code":"${code}","msg":"m"}`)?.outcome,
+    ]),
+  );
+  assert.deepEqual(verdicts, {
+    50011: 'RATE_LIMITED',
+    50026: 'SERVER_ERROR',
+    50103: 'UNAUTHORIZED',
+    50107: 'UNAUTHORIZED',
+    50111: 'UNAUTHORIZED',
+    50113: 'UNAUTHORIZED',
+    50114: 'UNAUTHORIZED',
+    50125: 'UNAUTHORIZED',
+    80001: 'UNAUTHORIZED',
+    50014: 'CLIENT_ERROR',
+    51000: 'CLIENT_ERROR',
+    99999: 'CLIENT_ERROR',
+  });
+
+  assert.deepEqual(read('{"code":50113,"msg":" Invalid Sign "}'), {
+    outcome: 'UNAUTHORIZED',
+    errorClass: 'OKX_CODE_50113',
+    errorDetail: 'Invalid Sign',
+  });
+  assert.equal(read('{"code":"51000","msg":""}')?.errorDetail, 'no message');
+  assert.deepEqual(read('{"data":[]}'), { outcome: 'CLIENT_ERROR', errorClass: 'OKX_NO_ENVELOPE', errorDetail: 'response has no code field' });
+  assert.equal(read('{"code":null}')?.errorClass, 'OKX_NO_ENVELOPE');
+  assert.equal(read('<html>maintenance</html>')?.errorClass, 'OKX_INVALID_JSON');
+  assert.equal(read('')?.errorClass, 'OKX_INVALID_JSON');
+});
+
+test('only OKX reads an envelope', () => {
+  assert.equal(PROVIDERS.okx.readEnvelope, readOkxEnvelope);
+  for (const id of ['jupiter', 'dexscreener', 'helius'] as const) {
+    assert.equal(PROVIDERS[id].readEnvelope, undefined, id);
   }
 });
 

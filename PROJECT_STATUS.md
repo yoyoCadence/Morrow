@@ -41,7 +41,7 @@
 
 ### Automated
 
-`npm test`：**150 個測試全部通過**，其中 68 個不需要資料庫，82 個對真實的 PostgreSQL 17 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 2 個，見下方「其他涵蓋」。）
+`npm test`：**153 個測試全部通過**，其中 70 個不需要資料庫，83 個對真實的 PostgreSQL 17 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」。）
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
@@ -58,6 +58,8 @@
 其他涵蓋：append-only 表拒絕 UPDATE／DELETE／TRUNCATE、租約過期後重新派發、執行階段的各種接手與衝突情境、API 的 Host／Origin 檢查與只綁 loopback、redirect 不跟隨、回應過大、逾時。
 
 E1.0 新增（`providers.test`）：沒有任何功能的請求帶 `taker`、呼叫 execute／broadcast／send／sign／build 類路徑，或在 body 送出交易；OKX 7 個功能的額度桶與官方價目頁一致。
+
+E1.0 新增（OKX envelope，`providers.test`、`client.dbtest`）：OKX 以 HTTP 200 回傳錯誤 `code` 時，依代碼分類為 `RATE_LIMITED`／`UNAUTHORIZED`／`SERVER_ERROR`／`CLIENT_ERROR`，不會記成 `OK`；`code` 為 `"0"` 或 `0`、或沒有 envelope 的陣列才算成功；原始回應照樣存證，`error_class` 記錄 `OKX_CODE_<code>`；只有 OKX 讀 envelope。
 
 對供應商的測試使用本機的假 HTTP 伺服器。依藍圖，這屬於自動化測試證據，不是 live 證據。
 
@@ -105,7 +107,8 @@ DEX Screener 回應的內容：wrapped SOL 只回了 1 個 pair（Orca 的 SOL/U
 - 除 DEX Screener 以外，任何供應商的真實回應格式、實際額度與 rate limit。
 - [registry.ts](apps/runtime/src/providers/registry.ts) 的端點已在 2026-10-05 對照官方文件核對（`docVerified: true`，每筆的 `note` 記錄了依據的文件網址）。OKX 的路徑與參數名稱另外對照了 OKX 官方 CLI 原始碼（`okx/onchainos-skills`，commit `9de8161`）。但除了 DEX Screener，還沒有一個端點收到真實回應，文件與實際行為可能不一致。
 - OKX 簽章對真實 API 是否有效。測試只確認它與 OpenSSL 獨立算出的 HMAC 一致；簽章規則（ISO 時間 + method + 含 query 的 path + body，HMAC-SHA256、Base64）與官方文件一致。
-- OKX 回應外層有自己的 `code` 欄位。目前的 probe 只看 HTTP 狀態碼，所以如果 OKX 用 HTTP 200 加上非 `"0"` 的 `code` 回報錯誤，probe 會記成 `OK`。有了 OKX 憑證跑 probe 時，要打開原始回應確認 `code`。
+- OKX 用 HTTP 200 加上錯誤 `code` 回報失敗的情況，現在由 `okx-envelope.ts` 依代碼分類，不會再記成 `OK`。代碼對照來自 OKX 官方 skills repo 的錯誤碼表與官方 CLI，但只用假伺服器測過；真實回應的 `code` 格式，要等有 OKX 憑證跑 probe 時確認。
+- Helius 是 JSON-RPC：RPC 層的錯誤（例如節點不健康）可能以 HTTP 200 加上 `error` 欄位回傳，目前仍會記成 `OK`。驗證失敗是否一定以 HTTP 401 回傳還沒實測；有 Helius 憑證跑 probe 時要打開原始回應確認。M1 讀取鏈上資料前要處理，已列入 Backlog。
 - 長時間執行（藍圖要求的三次 60 分鐘 session 屬於 M4）。
 - 休眠後恢復的 `HEARTBEAT_STALL`：只以測試中調整心跳時間的方式驗證，沒有讓機器實際休眠。
 
@@ -158,7 +161,7 @@ DEX Screener 回應的內容：wrapped SOL 只回了 1 個 pair（Orca 的 SOL/U
 ## 下一步
 
 1. 操作人申請 Jupiter、Helius、OKX 的免費唯讀憑證並寫入 `.env`（阻礙 2）。
-2. **E1.0 收尾**：在目前的開發機重跑 `npm run probe`，把 12 個功能的實測結果記在這裡；OKX 要同時檢查原始回應的 `code`。每個功能都是 `OK`，或有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`，E1.0 才算完成。
+2. **E1.0 收尾**：在目前的開發機重跑 `npm run probe`，把 12 個功能的實測結果記在這裡；OKX 的結果已會依回應的 `code` 分類，第一次仍要打開原始回應確認格式與文件一致。每個功能都是 `OK`，或有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`，E1.0 才算完成。
 3. 之後才開始 E1.1 與 E1.2。
 
 ## 交接備註

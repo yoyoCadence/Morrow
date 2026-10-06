@@ -15,6 +15,8 @@ import type { CapabilityDefinition, ProviderDefinition, ProviderId, RequestSpec 
 const HELIUS_KEY = 'helius-key-7f3a9c21';
 const JUPITER_KEY = 'jupiter-key-55aa01';
 const CREDENTIALS: ProviderCredentials = { helius: { apiKey: HELIUS_KEY }, jupiter: { apiKey: JUPITER_KEY } };
+/** OKX's way of rejecting a signature: HTTP 200 with the error in the envelope. */
+const ENVELOPE_ERROR = '{"code":"50113","msg":"Invalid Sign","data":[]}';
 
 interface Hit {
   readonly method: string;
@@ -40,6 +42,8 @@ before(async () => {
       response.end(body);
     };
     request.resume();
+    if (path === '/envelope-error') return send(200, ENVELOPE_ERROR);
+    if (path === '/envelope-ok') return send(200, '{"code":"0","msg":"","data":[]}');
     if (path?.startsWith('/ok')) return send(200, '{"ok":true}');
     if (path === '/rate') return send(429, '{"error":"slow down"}', { 'retry-after': '120' });
     if (path === '/pay') return send(402, '{"error":"upgrade your plan"}');
@@ -230,6 +234,35 @@ test('payment required: the response is kept, nothing is paid, and only a probe 
   for (const hit of hitsFor('/pay')) {
     assert.equal(hit.headers['x-payment'], undefined, 'no payment header is ever attached');
   }
+});
+
+test('an OKX error inside an HTTP 200 is classified by its code, not reported as OK', async () => {
+  const okx = { apiKey: 'okx-key-3c9e1d77', secretKey: 'okx-secret-8b20f4aa', passphrase: 'okx-pass-61d0c2e9' };
+  const { client } = harness({
+    credentials: { ...CREDENTIALS, okx },
+    redact: createRedactor([HELIUS_KEY, JUPITER_KEY, okx.apiKey, okx.secretKey, okx.passphrase]),
+  });
+
+  const rejected = capability('okx', { quotaBucket: 'basic' });
+  const result = await client.request({ capability: rejected, spec: get('/envelope-error'), reason: 'probe' });
+  assert.equal(result.outcome, 'UNAUTHORIZED');
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.detail, 'OKX_CODE_50113');
+  assert.equal(result.body?.toString(), ENVELOPE_ERROR, 'the response is kept as evidence');
+
+  const [row] = await rawRows(rejected);
+  assert.deepEqual(
+    { outcome: row?.outcome, status: row?.http_status, errorClass: row?.error_class, errorDetail: row?.error_detail },
+    { outcome: 'UNAUTHORIZED', status: 200, errorClass: 'OKX_CODE_50113', errorDetail: 'Invalid Sign' },
+  );
+  assert.equal((await health(rejected))?.state, 'UNAUTHORIZED', 'it needs a person, like an HTTP 401');
+
+  const accepted = capability('okx', { quotaBucket: 'basic' });
+  assert.equal((await client.request({ capability: accepted, spec: get('/envelope-ok'), reason: 'probe' })).outcome, 'OK');
+
+  // Providers without an envelope are judged by the HTTP status alone.
+  const plain = capability('dexscreener');
+  assert.equal((await client.request({ capability: plain, spec: get('/envelope-error'), reason: 'probe' })).outcome, 'OK');
 });
 
 test('rejected credentials are not retried automatically', async () => {

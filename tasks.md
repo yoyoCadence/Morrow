@@ -22,7 +22,8 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 - [ ] **E1.0 核對供應商端點並取得實際權限資料**（M0 追加，M1 的前置）
   - [x] 對照官方文件確認 `apps/runtime/src/providers/registry.ts` 內每個端點，補上 8 個尚未定義的端點，並標明 OKX 各端點屬於 Basic 或 Premium 額度。（2026-10-05）
-  - [ ] 設定憑證後在可連線的網路執行 `npm run probe`，把各功能的實測結果寫進 PROJECT_STATUS.md。2026-10-05 已在目前的開發機跑過一次：DEX Screener `OK`，其餘 12 個 `CREDENTIAL_MISSING`，等憑證。OKX 要另外檢查原始回應的 `code`。
+  - [x] OKX 以 HTTP 200 回傳錯誤 `code` 時，依代碼分類，不再記成 `OK`（`okx-envelope.ts`）。（2026-10-06）
+  - [ ] 設定憑證後在可連線的網路執行 `npm run probe`，把各功能的實測結果寫進 PROJECT_STATUS.md。2026-10-05 已在目前的開發機跑過一次：DEX Screener `OK`，其餘 12 個 `CREDENTIAL_MISSING`，等憑證。第一次要打開 OKX 與 Helius 的原始回應，確認錯誤格式與文件一致。
   - 完成條件：每個功能的結果是 `OK`，或是有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`；沒有 `ENDPOINT_UNVERIFIED`、`TLS_UNTRUSTED`。
 
 ## Backlog
@@ -48,6 +49,7 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] 資料庫角色分離：migration 用 owner 角色，執行期用權限較小的角色（藍圖威脅模型的「分角色 DB 權限」）。目前 append-only 由 trigger 強制，但 migration 與執行期共用同一個角色。
 - [ ] 對照各供應商的帳戶後台，確認額度的計費週期何時重置。目前假設是 UTC 曆月。
 - [ ] 量測 Helius 各端點實際扣的 credits，據以調整警告線與硬性上限。目前沿用 OKX 的 70%／85% 比例。
+- [ ] Helius JSON-RPC 的錯誤可能以 HTTP 200 加上 `error` 欄位回傳，目前會記成 `OK`。比照 OKX 加上 `readEnvelope`；M1 讀取鏈上資料前完成。
 - [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。目前相同 `dedupe_key` 的第二筆會被直接略過。
 - [ ] 欄位層級 quarantine 的持久化：隨第一個 parser（M1）加入資料表。
 - [ ] 本機資料庫的備份與還原（屬於 E4.2，在那之前 `pgdata` 是唯一的一份）。

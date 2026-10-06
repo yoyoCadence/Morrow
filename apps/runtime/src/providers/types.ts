@@ -1,6 +1,16 @@
+import type { RequestOutcome } from '@morrow/core';
 import type { ProviderCredentials } from '../config/config.js';
 
 export type ProviderId = 'jupiter' | 'dexscreener' | 'okx' | 'helius';
+
+/** What a 2xx response body says when it reports an error the HTTP status does not. */
+export interface EnvelopeVerdict {
+  readonly outcome: RequestOutcome;
+  /** Short machine-readable reason, stored as the observation's error class. */
+  readonly errorClass: string;
+  /** The provider's own message. Redacted before it is stored. */
+  readonly errorDetail: string;
+}
 
 /**
  * A request as it is recorded: no credentials anywhere in it. Authentication
@@ -43,6 +53,12 @@ export interface ProviderDefinition {
    * needs are not configured.
    */
   authorize(spec: RequestSpec, credentials: ProviderCredentials, now: Date): AuthorizedRequest | null;
+  /**
+   * For providers that can answer HTTP 2xx with an error inside the body:
+   * reads a 2xx body and returns what it really says, or null when it
+   * confirms success. Without it, a 2xx is always OK.
+   */
+  readonly readEnvelope?: (body: Buffer) => EnvelopeVerdict | null;
 }
 
 export interface CapabilityDefinition {
