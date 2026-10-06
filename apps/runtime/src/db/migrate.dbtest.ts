@@ -36,7 +36,7 @@ test('an empty database migrates to the current schema, and a second run changes
 
   for (const table of [
     'run_sessions', 'session_gaps', 'raw_payloads', 'raw_observations', 'events', 'jobs', 'consumer_inbox',
-    'quota_counters', 'quota_events', 'source_health', 'provider_probes', 'audit_log',
+    'quota_counters', 'quota_events', 'source_health', 'provider_probes', 'audit_log', 'parse_quarantine',
   ]) {
     assert.equal(await tableExists(db, table), true, table);
   }

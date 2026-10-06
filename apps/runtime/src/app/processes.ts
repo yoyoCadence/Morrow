@@ -4,6 +4,7 @@ import type { AppConfig } from '../config/config.js';
 import { getMigrationStatus } from '../db/migrate.js';
 import { JobWorker, type JobHandler } from '../jobs/worker.js';
 import type { Logger } from '../logging/logger.js';
+import { ingestRawObservation, PARSE_JOB_KIND } from '../parsers/ingest.js';
 import { ProviderClient } from '../providers/client.js';
 import { PROBE_JOB_KIND, runProbes } from '../providers/probes.js';
 import { keepSessionAlive, startSession, stopSession, type Component } from '../session/run-session.js';
@@ -115,10 +116,17 @@ export async function startApiProcess(deps: ProcessDeps & { readonly webRoot?: s
 
 /**
  * Job handlers available in a mode. OFF only inspects data that already
- * exists, so it registers nothing that would contact a provider.
+ * exists, so it registers nothing that would contact a provider. Parsing
+ * reads stored evidence only, so it runs in every mode.
  */
 export function defaultHandlers(deps: ProcessDeps, getSessionId: () => string): Map<string, JobHandler> {
   const handlers = new Map<string, JobHandler>();
+  handlers.set(PARSE_JOB_KIND, async (job) => {
+    const id = job.payload['raw_observation_id'];
+    if (typeof id !== 'string' || !/^[1-9]\d*$/.test(id)) throw new Error('raw.parse job has no valid raw_observation_id');
+    const summary = await ingestRawObservation(deps.pool, id);
+    deps.logger.info({ ...summary }, 'raw observation parsed');
+  });
   if (deps.config.mode === 'OFF') return handlers;
 
   const client = new ProviderClient({

@@ -167,6 +167,26 @@ test('a successful response is returned, stored as evidence, and marks the sourc
   assert.deepEqual(await health(cap), { state: 'HEALTHY', last_outcome: 'OK', consecutive_failures: 0, blocked_until: null });
 });
 
+test('a successful response that has a parser is stored together with its parse job', async () => {
+  const { client } = harness();
+  // The real capability name, because parsers are registered by it.
+  const cap = capability('dexscreener', { capability: 'market.tokens' });
+  const parseJobsFor = async (rawId: string | null) =>
+    (await db.pool.query("SELECT 1 FROM jobs WHERE kind = 'raw.parse' AND payload->>'raw_observation_id' = $1", [rawId])).rowCount;
+
+  const ok = await client.request({ capability: cap, spec: get('/ok'), reason: 'scheduled' });
+  assert.equal(ok.outcome, 'OK');
+  assert.equal(await parseJobsFor(ok.rawObservationId), 1);
+
+  const failed = await client.request({ capability: cap, spec: get('/parse-error'), reason: 'scheduled' });
+  assert.equal(failed.outcome, 'CLIENT_ERROR');
+  assert.ok(failed.rawObservationId);
+  assert.equal(await parseJobsFor(failed.rawObservationId), 0, 'an error response is evidence, not market data');
+
+  const unparsed = await client.request({ capability: capability('jupiter'), spec: get('/ok'), reason: 'scheduled' });
+  assert.equal(await parseJobsFor(unparsed.rawObservationId), 0, 'no parser, no job');
+});
+
 test('credentials reach the provider but are never stored', async () => {
   const { client } = harness();
   const helius = capability('helius');
