@@ -82,6 +82,8 @@ npm run probe      # 需要 worker 正在執行，且模式不是 OFF
 
 Probe 也算額度。來源在 rate limit 退避期間，probe 一樣會被擋下。
 
+OKX 可能用 HTTP 200 回傳錯誤，錯誤放在回應的 `code` 欄位。只有 `code` 是 `"0"`（或 `0`）時才記成 `OK`；其他代碼依 [okx-envelope.ts](../apps/runtime/src/providers/okx-envelope.ts) 分類：`50011` 為 `RATE_LIMITED`，驗證相關（`50103`–`50107`、`50111`–`50114`）與地區封鎖（`50125`、`80001`）為 `UNAUTHORIZED`，`50026` 為 `SERVER_ERROR`，其餘為 `CLIENT_ERROR`。代碼記錄在 `raw_observations.error_class`（例如 `OKX_CODE_50113`），訊息在 `error_detail`。
+
 ## 額度
 
 本地上限定義在 [apps/runtime/src/quota/quota-ledger.ts](../apps/runtime/src/quota/quota-ledger.ts)：

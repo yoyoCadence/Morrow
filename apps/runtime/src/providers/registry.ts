@@ -1,3 +1,4 @@
+import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import {
   pathWithQuery,
@@ -47,6 +48,7 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     group: 'okx',
     minIntervalMs: 1_000,
     metered: true,
+    readEnvelope: readOkxEnvelope,
     authorize(spec, credentials, now) {
       if (!credentials.okx) return null;
       const timestamp = now.toISOString();

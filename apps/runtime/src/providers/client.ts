@@ -192,7 +192,7 @@ export class ProviderClient {
     await this.#limiter(provider).acquire();
 
     const sentAt = this.#now();
-    const attempt = await this.#send(authorized, spec.method);
+    const attempt = await this.#send(provider, authorized, spec.method);
     const observedAt = this.#now();
 
     const stored = await withTransaction(pool, async (tx) => {
@@ -240,7 +240,7 @@ export class ProviderClient {
     return limiter;
   }
 
-  async #send(authorized: AuthorizedRequest, method: 'GET' | 'POST'): Promise<Attempt> {
+  async #send(provider: ProviderDefinition, authorized: AuthorizedRequest, method: 'GET' | 'POST'): Promise<Attempt> {
     const doFetch = this.#options.fetch ?? fetch;
     try {
       const response = await doFetch(authorized.url, {
@@ -252,16 +252,19 @@ export class ProviderClient {
         signal: AbortSignal.timeout(this.#options.timeoutMs ?? 15_000),
       });
       const body = await readBody(response, this.#options.maxBodyBytes ?? 8 * 1024 * 1024);
+      const byStatus = classifyStatus(response.status);
+      // A 2xx is only OK if the body agrees, for providers that report errors inside it.
+      const verdict = byStatus === 'OK' && provider.readEnvelope ? provider.readEnvelope(body) : null;
       return {
         info: {
-          outcome: classifyStatus(response.status),
+          outcome: verdict?.outcome ?? byStatus,
           httpStatus: response.status,
           retryAfterMs: parseRetryAfterMs(response.headers.get('retry-after'), this.#now()),
         },
         body,
         contentType: response.headers.get('content-type'),
-        errorClass: null,
-        errorDetail: null,
+        errorClass: verdict?.errorClass ?? null,
+        errorDetail: verdict ? this.#options.redact(verdict.errorDetail).slice(0, 1000) : null,
       };
     } catch (error) {
       if (error instanceof ResponseTooLargeError) {
