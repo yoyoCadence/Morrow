@@ -62,6 +62,8 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 |---|---|
 | `npm run build` | 建置 server 與 dashboard |
 | `npm run typecheck` | 型別檢查 |
+| `npm run lint` | Biome lint（CI 會執行） |
+| `npm run format` | 以 Biome 格式化（尚未強制，見 tasks.md 的 RV-11b） |
 | `npm test` | 全部測試（需要測試資料庫） |
 | `npm run test:unit` | 不需要資料庫的測試 |
 | `npm run migrate` | 套用尚未執行的 migration |
@@ -79,6 +81,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 |---|---|
 | 安裝 | `npm ci`（只依 lockfile，不執行套件的 install script） |
 | 型別檢查 | `npm run typecheck` |
+| Lint | `npm run lint`（Biome，recommended 規則） |
 | 建置 | `npm run build` |
 | 全部測試 | `npm test`（CI 使用 PostgreSQL 17 的 service container） |
 | Migration 冒煙測試 | `npm run migrate` 兩次，第二次必須回報已是最新 |

@@ -61,6 +61,7 @@
 | RV-08 Provider 層級退避 | 限制屬於整個金鑰的供應商（Jupiter、Helius、暫定 OKX），一個功能被 429 時暫停該供應商的所有功能；DEX Screener 依端點限流，只暫停該端點 | 新增 3 個測試：同一供應商的其他功能被 `SUPPRESSED` 且沒有送出、其他供應商不受影響、到期後成功即清除；依端點限流的供應商不受影響；各供應商宣告的範圍 |
 | RV-09 簽章時間與時鐘偏移 | 節流等待之後才以當下時間簽章；每個回應的 `Date` 存進 `raw_observations.server_date`，偏移以收到 header 的時間估計存進 `clock_offset_ms`（migration `0005`）；health 以近期回應的中位數估計時鐘偏移，樣本不足為未知；dashboard 頁首顯示偏移 | 新增 6 個測試：等待 5 秒後的簽章時間、`Date` header 的保存與解析、偏移公式、body 傳輸 1.5 秒不被算成偏移、差好幾年的時鐘仍能記錄、偏移的嚴重度與中位數、樣本不足為 null。Codex review 的意見（body 傳輸時間被算成偏移）已修正；修正時測試抓到 `integer` 會溢位，改為 bigint |
 | RV-10 PR 範本 | `.github/pull_request_template.md`：對應任務、變更、原因、實際執行的驗證、文件與看板的勾選項（tasks.md、PROJECT_STATUS、架構與契約文件、migration 不可修改）、風險、下一步 | 文件變更；這個 PR 本身就是用新範本的結構撰寫 |
+| RV-11 Lint | Biome 2.5.15 只作 linter，CI 執行 `npm run lint`；recommended 規則，關掉 2 個純風格規則；修正 3 個問題（隱含 any、`forEach` 回傳值、React 以 index 當 key）。全域格式化會改寫 31 個檔案，依 AGENTS.md §2 待操作人決定（RV-11b） | `npm run lint` 無錯誤；202 個測試全過，parser 的輸出不變（決定性測試） |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|

@@ -102,8 +102,9 @@ function Findings({ findings }: { findings: HealthReport['findings'] }) {
   if (findings.length === 0) return null;
   return (
     <ul className="findings" aria-label="狀態原因">
-      {findings.map((finding, index) => (
-        <li key={`${finding.code}-${finding.subject ?? ''}-${index}`}>
+      {findings.map((finding) => (
+        // Unique: each code is reported at most once per subject.
+        <li key={`${finding.code}:${finding.subject ?? ''}`}>
           <Badge tone={LEVELS[finding.severity].tone}>{LEVELS[finding.severity].label}</Badge>
           <span>{FINDING_LABELS[finding.code]}</span>
           {finding.subject ? <code>{finding.subject}</code> : null}
