@@ -120,7 +120,7 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 ### 時鐘偏移
 
-每個回應的 `Date` header 存在 `raw_observations.server_date`（`0005`）。Health 以近 30 分鐘、最多 20 筆回應的中位數估計本機時鐘與供應商的差（`clock.skew_ms`，正值表示本機較慢）；少於 3 筆時為 null，代表未知，不是 0。Date header 只有一秒的解析度，加上網路延遲，所以 5 秒以內視為雜訊。目前沒有任何工作依賴資料新鮮度做決策；第一個這樣的工作（排程、策略）必須在偏移超標時停止，這是藍圖 fail-safe 的要求。
+每個回應的 `Date` header 存在 `raw_observations.server_date`（`0005`），同時存一個偏移估計 `clock_offset_ms`：`server_date + 500 ms` 減去「送出請求」與「收到回應 header」的中點。用 header 而不是 body 讀完的時間，否則傳輸緩慢的 body 會被算成時鐘偏移；加 500 ms 是因為 Date header 被截斷到秒。欄位是 bigint：時鐘差好幾年（例如主機板電池沒電）也要記得下來，不能溢位。Health 以近 30 分鐘、最多 20 筆的中位數估計本機時鐘與供應商的差（`clock.skew_ms`，正值表示本機較慢）；少於 3 筆時為 null，代表未知，不是 0。Date header 只有一秒的解析度，所以 5 秒以內視為雜訊。目前沒有任何工作依賴資料新鮮度做決策；第一個這樣的工作（排程、策略）必須在偏移超標時停止，這是藍圖 fail-safe 的要求。
 
 ### 逾時
 

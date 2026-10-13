@@ -176,13 +176,13 @@ export function healthFindings(inputs: FindingInputs): HealthFinding[] {
   return findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 
-/** Median of (provider Date header - our receipt time) over recent responses. */
+/** Median of the clock offsets estimated from recent responses (see clockOffsetMs). */
 async function clockSkew(pool: pg.Pool): Promise<HealthReport['clock']> {
   const result = await pool.query<{ samples: number; median: number | null }>(
-    `SELECT count(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY skew_ms) AS median
-       FROM (SELECT EXTRACT(EPOCH FROM server_date - observed_at) * 1000 AS skew_ms
+    `SELECT count(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY clock_offset_ms) AS median
+       FROM (SELECT clock_offset_ms
                FROM raw_observations
-              WHERE server_date IS NOT NULL AND available_at > clock_timestamp() - interval '30 minutes'
+              WHERE clock_offset_ms IS NOT NULL AND available_at > clock_timestamp() - interval '30 minutes'
               ORDER BY available_at DESC
               LIMIT 20) recent`,
   );

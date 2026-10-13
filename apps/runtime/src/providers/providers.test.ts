@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderCredentials } from '../config/config.js';
 import { QUOTA_POLICIES } from '../quota/quota-ledger.js';
-import { classifyFetchError, classifyStatus, parseRetryAfterMs, parseServerDate } from './client.js';
+import { classifyFetchError, classifyStatus, clockOffsetMs, parseRetryAfterMs, parseServerDate } from './client.js';
 import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
@@ -61,6 +61,14 @@ test('timeouts and other failures are told apart', () => {
     { outcome: 'NETWORK_ERROR', errorClass: 'ECONNREFUSED' },
   );
   assert.equal(classifyFetchError('weird').outcome, 'NETWORK_ERROR');
+});
+
+test('the clock offset compares the Date header with the middle of the round trip, centred on its second', () => {
+  const sent = new Date('2026-10-13T14:30:00.200Z');
+  const headers = new Date('2026-10-13T14:30:00.600Z');
+  // The server's true time was in [14:30:00.000, 14:30:01.000): taken as .500, the midpoint is .400.
+  assert.equal(clockOffsetMs(new Date('2026-10-13T14:30:00.000Z'), sent, headers), 100);
+  assert.equal(clockOffsetMs(new Date('2026-10-13T14:30:40.000Z'), sent, headers), 40_100, 'their clock 40 s ahead');
 });
 
 test('a Date header becomes a time, and anything else is no time', () => {

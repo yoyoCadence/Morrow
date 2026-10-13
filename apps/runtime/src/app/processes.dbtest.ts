@@ -308,14 +308,14 @@ test("a clock that disagrees with the providers' is reported, and too few sample
   await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");
   const report = async (): Promise<HealthReport> =>
     HealthReport.parse(await buildHealthReport({ pool: db.pool, mode: 'RESEARCH', version: 'test' }));
-  // Responses whose Date header is `skewSeconds` ahead of when we received them.
+  // Responses whose estimated clock offset is `skewSeconds`.
   const responses = async (count: number, skewSeconds: number) => {
     for (let i = 0; i < count; i += 1) {
       await db.pool.query(
         `INSERT INTO raw_observations (provider, provider_group, capability, request_method, request_url, request_fingerprint,
-           reason, outcome, observed_at, server_date)
+           reason, outcome, observed_at, server_date, clock_offset_ms)
          VALUES ('dexscreener', 'dexscreener', 'market.tokens', 'GET', 'https://x', $1, 'scheduled', 'OK',
-           clock_timestamp(), clock_timestamp() + make_interval(secs => $2))`,
+           clock_timestamp(), clock_timestamp() + make_interval(secs => $2), $2 * 1000)`,
         ['f'.repeat(64), skewSeconds],
       );
     }

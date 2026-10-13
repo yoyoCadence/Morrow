@@ -24,6 +24,8 @@ export interface RawObservationInput {
   readonly observedAt: Date;
   /** The provider's clock, from its Date header; null when there was none. */
   readonly serverDate?: Date | null;
+  /** Estimated provider clock minus ours, in ms; null without a Date header. See migration 0005. */
+  readonly clockOffsetMs?: number | null;
   readonly runSessionId: string | null;
 }
 
@@ -54,8 +56,8 @@ export async function storeRawObservation(db: Queryable, input: RawObservationIn
     `INSERT INTO raw_observations (
        provider, provider_group, capability, request_method, request_url, request_fingerprint,
        reason, outcome, http_status, content_type, payload_sha256, error_class, error_detail,
-       duration_ms, observed_at, run_session_id, server_date)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       duration_ms, observed_at, run_session_id, server_date, clock_offset_ms)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      RETURNING id, available_at`,
     [
       input.provider,
@@ -75,6 +77,7 @@ export async function storeRawObservation(db: Queryable, input: RawObservationIn
       input.observedAt,
       input.runSessionId,
       input.serverDate ?? null,
+      input.clockOffsetMs ?? null,
     ],
   );
   const row = result.rows[0];

@@ -43,7 +43,7 @@
 
 ### Automated
 
-`npm test`：**200 個測試全部通過**，其中 92 個不需要資料庫，108 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
+`npm test`：**202 個測試全部通過**，其中 93 個不需要資料庫，109 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
 
 #### 審查修正（2026-10-13 起）
 
@@ -59,7 +59,7 @@
 | RV-06 矛盾資料可見 | 同一個 `dedupe_key` 卻說了不同事實的事件，記錄在 append-only 的 `event_conflicts`（migration `0004`）；同一個事實重送仍是 no-op；health 對近 24 小時的矛盾給出「需注意」 | 新增 7 個測試：canonical JSON、fact hash 不受 provenance／key 順序／時間寫法影響、矛盾只記錄一次且保留證據、0004 之前的事件以推導的 hash 比對、health finding。Codex review 的 2 個意見（舊事件無法比對、`schema_version` 不應計入）都已修正 |
 | RV-07 `confidence` 精度 | 契約限制最多 6 位小數，與 `events.confidence numeric(7,6)` 一致；更細的值在寫入前被拒絕，不再被資料庫靜默四捨五入 | 新增 2 個測試（可接受的值、存回的值與送出的完全相同），並在拒絕案例中加入 7 位小數 |
 | RV-08 Provider 層級退避 | 限制屬於整個金鑰的供應商（Jupiter、Helius、暫定 OKX），一個功能被 429 時暫停該供應商的所有功能；DEX Screener 依端點限流，只暫停該端點 | 新增 3 個測試：同一供應商的其他功能被 `SUPPRESSED` 且沒有送出、其他供應商不受影響、到期後成功即清除；依端點限流的供應商不受影響；各供應商宣告的範圍 |
-| RV-09 簽章時間與時鐘偏移 | 節流等待之後才以當下時間簽章；每個回應的 `Date` 存進 `raw_observations.server_date`（migration `0005`）；health 以近期回應的中位數估計時鐘偏移，樣本不足為未知；dashboard 頁首顯示偏移 | 新增 4 個測試：等待 5 秒後的簽章時間、`Date` header 的保存與解析、偏移的嚴重度、中位數不被少數異常樣本左右、樣本不足為 null |
+| RV-09 簽章時間與時鐘偏移 | 節流等待之後才以當下時間簽章；每個回應的 `Date` 存進 `raw_observations.server_date`，偏移以收到 header 的時間估計存進 `clock_offset_ms`（migration `0005`）；health 以近期回應的中位數估計時鐘偏移，樣本不足為未知；dashboard 頁首顯示偏移 | 新增 6 個測試：等待 5 秒後的簽章時間、`Date` header 的保存與解析、偏移公式、body 傳輸 1.5 秒不被算成偏移、差好幾年的時鐘仍能記錄、偏移的嚴重度與中位數、樣本不足為 null。Codex review 的意見（body 傳輸時間被算成偏移）已修正；修正時測試抓到 `integer` 會溢位，改為 bigint |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|

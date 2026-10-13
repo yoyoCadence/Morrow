@@ -195,9 +195,10 @@ export const HealthReport = z.strictObject({
   recent_event_conflicts: z.number().int().min(0),
   /**
    * How far this machine's clock is from the providers', estimated from the
-   * Date headers of recent responses: the median of (provider time - our
-   * receipt time). Positive means our clock is behind. Null when there are
-   * too few recent responses to say; that is unknown, not zero.
+   * Date headers of recent responses: the median of their clock offsets
+   * (provider time minus ours at the moment the headers arrived). Positive
+   * means our clock is behind. Null when there are too few recent responses
+   * to say; that is unknown, not zero.
    */
   clock: z.strictObject({
     skew_ms: z.number().int().nullable(),

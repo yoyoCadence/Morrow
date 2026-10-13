@@ -53,6 +53,12 @@ before(async () => {
     if (path === '/big') return send(200, 'x'.repeat(5_000));
     if (path === '/redirect') return send(302, '', { location: '/ok-after-redirect' });
     if (path === '/slow') return void setTimeout(() => send(200, '{"late":true}'), 1_000);
+    if (path === '/slow-body') {
+      // Headers at once, the rest of the body later.
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.write('{"slow":');
+      return void setTimeout(() => response.end('true}'), 1_500);
+    }
     return send(400, '{"error":"unknown test route"}');
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -554,16 +560,37 @@ test('a signed request is signed when it leaves, not when it started waiting for
   assert.equal(second?.headers['ok-access-timestamp'], new Date(queuedAt + 5_000).toISOString(), 'stamped after the 5 s wait');
 });
 
+test('a slow body is not mistaken for clock skew', async () => {
+  // Real time, so the test server's Date header can be compared with it.
+  const client = new ProviderClient({ pool: db.pool, logger: silentLogger, credentials: CREDENTIALS, redact: (text) => text, providers: unpaced });
+  const result = await client.request({ capability: capability('dexscreener'), spec: get('/slow-body'), reason: 'scheduled' });
+  assert.equal(result.outcome, 'OK');
+  const row = await db.pool.query<{ clock_offset_ms: number; server_date: Date; observed_at: Date }>(
+    'SELECT clock_offset_ms::float8 AS clock_offset_ms, server_date, observed_at FROM raw_observations WHERE id = $1',
+    [result.rawObservationId],
+  );
+  const stored = row.rows[0];
+  assert.ok(stored);
+  assert.ok(stored.observed_at.getTime() - stored.server_date.getTime() > 1_000, 'the body took over a second after the headers');
+  assert.ok(Math.abs(stored.clock_offset_ms) <= 1_000, `offset ${stored.clock_offset_ms} ms: the same clock, within the Date header's resolution`);
+});
+
 test("the provider's Date header is kept with the observation", async () => {
-  const { client } = harness();
+  // This harness's clock is set years ahead, like a machine whose clock is badly wrong.
+  const { client, now } = harness();
   const cap = capability('dexscreener');
   const before = Date.now();
   const result = await client.request({ capability: cap, spec: get('/ok'), reason: 'scheduled' });
-  const row = await db.pool.query<{ server_date: Date | null }>('SELECT server_date FROM raw_observations WHERE id = $1', [result.rawObservationId]);
+  const row = await db.pool.query<{ server_date: Date | null; clock_offset_ms: number | null }>(
+    'SELECT server_date, clock_offset_ms::float8 AS clock_offset_ms FROM raw_observations WHERE id = $1',
+    [result.rawObservationId],
+  );
   const serverDate = row.rows[0]?.server_date;
   assert.ok(serverDate instanceof Date, 'the local test server sends a Date header, as real servers do');
   // A Date header has one-second resolution.
   assert.ok(Math.abs(serverDate.getTime() - before) < 5_000);
+  const offset = row.rows[0]?.clock_offset_ms ?? 0;
+  assert.ok(Math.abs(offset - (serverDate.getTime() + 500 - now().getTime())) < 2, 'a clock years off is still recorded, not overflowed');
 
   const failedRequest = await client.request({ capability: capability('dexscreener'), spec: get('/ok', closedOrigin), reason: 'scheduled' });
   const none = await db.pool.query<{ server_date: Date | null }>('SELECT server_date FROM raw_observations WHERE id = $1', [failedRequest.rawObservationId]);
