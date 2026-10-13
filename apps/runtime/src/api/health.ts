@@ -107,6 +107,7 @@ interface FindingInputs {
   readonly sources: readonly SourceHealthView[];
   readonly quota: readonly QuotaView[];
   readonly deadJobs: number;
+  readonly recentConflicts: number;
 }
 
 /** Every reason the status is not ok, worst first. */
@@ -143,8 +144,23 @@ export function healthFindings(inputs: FindingInputs): HealthFinding[] {
   if (inputs.deadJobs > 0) {
     findings.push({ severity: 'degraded', code: 'JOBS_DEAD', subject: null, detail: `${inputs.deadJobs} job(s) ran out of attempts` });
   }
+  if (inputs.recentConflicts > 0) {
+    findings.push({
+      severity: 'attention',
+      code: 'EVENT_CONFLICTS',
+      subject: null,
+      detail: `${inputs.recentConflicts} event(s) in the last 24h contradicted one already stored; see event_conflicts`,
+    });
+  }
   // Stable sort: worst first, then in the order found.
   return findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+}
+
+async function recentConflicts(pool: pg.Pool): Promise<number> {
+  const result = await pool.query<{ n: number }>(
+    "SELECT count(*)::int AS n FROM event_conflicts WHERE detected_at > clock_timestamp() - interval '24 hours'",
+  );
+  return result.rows[0]?.n ?? 0;
 }
 
 async function recentGaps(pool: pg.Pool): Promise<SessionGapView[]> {
@@ -191,6 +207,7 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
     sources: [],
     quota: [],
     jobs: { queued: 0, leased: 0, dead: 0 },
+    recent_event_conflicts: 0,
   };
   // Nothing past the database part could be read, so nothing past it is reported.
   const incomplete = (
@@ -235,14 +252,22 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
   }
 
   try {
-    const [sessions, gaps, sources, quota, jobs] = await Promise.all([
+    const [sessions, gaps, sources, quota, jobs, conflicts] = await Promise.all([
       latestSessions(inputs.pool),
       recentGaps(inputs.pool),
       listSourceHealth(inputs.pool),
       getQuotaViews(inputs.pool, now),
       countJobs(inputs.pool),
+      recentConflicts(inputs.pool),
     ]);
-    const findings = healthFindings({ mode: inputs.mode, sessions, sources, quota, deadJobs: jobs.dead });
+    const findings = healthFindings({
+      mode: inputs.mode,
+      sessions,
+      sources,
+      quota,
+      deadJobs: jobs.dead,
+      recentConflicts: conflicts,
+    });
     return {
       ...base,
       status: overallLevel(findings),
@@ -253,6 +278,7 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
       sources,
       quota,
       jobs,
+      recent_event_conflicts: conflicts,
     };
   } catch (error) {
     inputs.logger?.error({ err: error }, 'health: status query failed');

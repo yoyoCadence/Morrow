@@ -7,6 +7,7 @@ import path from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { HealthReport, type EnabledMode } from '@morrow/core';
 import { buildHealthReport } from '../api/health.js';
+import { appendEvent } from '../events/event-store.js';
 import { buildApiServer } from '../api/server.js';
 import type { AppConfig } from '../config/config.js';
 import { createPool, withTransaction } from '../db/pool.js';
@@ -300,6 +301,29 @@ test('missing credentials need attention, an outage is degraded, and the worst f
   current = await report();
   assert.equal(current.status, 'degraded');
   assert.equal(current.findings[0]?.code, 'QUOTA_HARD_STOP', 'worst first');
+});
+
+test('a contradiction between events needs attention', async (t) => {
+  const db = await freshDb(t);
+  await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");
+  const report = async (): Promise<HealthReport> =>
+    HealthReport.parse(await buildHealthReport({ pool: db.pool, mode: 'RESEARCH', version: 'test' }));
+  assert.deepEqual([(await report()).status, (await report()).recent_event_conflicts], ['ok', 0]);
+
+  const event: Parameters<typeof appendEvent>[1] = {
+    schema_version: 1, dedupe_key: 'test:conflict', domain: 'system', action: 'test.fact', subject: 'system:test',
+    payload_version: 1, payload: { value: 'a' }, event_time: null, observed_at: new Date().toISOString(),
+    provenance: { provider: 'test', provider_group: 'test', parser_version: 'test@1', raw_sha256: 'e'.repeat(64),
+      evidence_refs: ['raw_observation:1'], slot: null, commitment: null, coverage: { completeness: 'COMPLETE' } },
+    severity: 'INFO', confidence: null, causation_id: null, correlation_id: null,
+  };
+  await appendEvent(db.pool, event);
+  await appendEvent(db.pool, { ...event, payload: { value: 'b' } });
+
+  const current = await report();
+  assert.equal(current.status, 'attention');
+  assert.equal(current.recent_event_conflicts, 1);
+  assert.deepEqual(current.findings.map((finding) => [finding.severity, finding.code]), [['attention', 'EVENT_CONFLICTS']]);
 });
 
 test('health says so when the schema is behind or the database is unreachable', async (t) => {

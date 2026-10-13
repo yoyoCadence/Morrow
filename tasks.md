@@ -59,12 +59,11 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] 對照各供應商的帳戶後台，確認額度的計費週期何時重置。目前假設是 UTC 曆月。
 - [ ] 量測 Helius 各端點實際扣的 credits，據以調整警告線與硬性上限。目前沿用 OKX 的 70%／85% 比例。
 - [ ] Helius JSON-RPC 的錯誤可能以 HTTP 200 加上 `error` 欄位回傳，目前會記成 `OK`。比照 OKX 加上 `readEnvelope`；M1 讀取鏈上資料前完成。
-- [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。目前相同 `dedupe_key` 的第二筆會被直接略過。與 RV-06 一起處理。
+- [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。矛盾的部分已由 RV-06 記錄在 `event_conflicts`；說的是同一個事實的第二筆仍然只是 no-op，各自的佐證沒有保存。
 - [ ] 本機資料庫的備份與還原（屬於 E4.2，在那之前 `pgdata` 是唯一的一份）。審查建議提前，見 FT-06。
 
 ### 審查發現 — M2 之前完成
 
-- [ ] **RV-06 矛盾資料可見**（P1；R6）— 相同 `dedupe_key`、不同 payload 時，記錄衝突（獨立的 append-only 表或 audit），不再靜默丟棄。完成測試：相同內容重送仍是 no-op；不同內容留下可查詢的衝突紀錄。
 - [ ] **RV-07 `confidence` 精度一致**（P1；R7）— 契約限制最多 6 位小數，與 `numeric(7,6)` 一致；目前沒有 producer，不需要轉換舊資料。完成測試：7 位小數在寫入前被拒絕。
 - [ ] **RV-08 Provider 層級退避**（P1；D1）— 帳號共用的限制（Jupiter、Helius 的 429）暫停整個供應商；方案或權限造成的錯誤仍以功能為單位。完成測試：一個 Jupiter 功能被 429 時，另一個 Jupiter 功能被 `SUPPRESSED`。
 - [ ] **RV-09 簽章時間與時鐘偏移**（P1；R9、D6）— OKX 在節流等待之後才簽章；記錄供應商回應 `Date` header 與本機時間的差，超過門檻時依藍圖 fail-safe 停止依賴新鮮度的工作。完成測試：等待期間時間前進時，簽章使用送出當下的時間；偏移超過門檻會反映在 health。
@@ -124,3 +123,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **RV-03 來源狀態語意與四級整體狀態**（P0；R4、R8、D7）— **先以 Mode A 提出設計再實作**。`NOT_FOUND` 與 `CLIENT_ERROR`（包含 OKX envelope 錯誤）不可顯示為 `HEALTHY`；health 回應提供最近一次的 `error_class`；整體狀態分出「沒有憑證（需注意）」與「實際故障（異常／嚴重）」。若需要新的 `source_health.state`，以新的 migration 修改 CHECK。OKX `50101`／`50102` 的分類要等真實回應確認。完成測試：永遠回 404 的功能使整體狀態降級；只缺憑證時狀態與資料庫斷線不同。實作：新的來源狀態 `REQUEST_REJECTED`（migration `0003`，既有資料依新規則轉換）；`HealthReport` 改為四級狀態並列出 `findings`；來源檢視多了 `last_error_class`；連續 3 次被拒絕視為異常。設計記錄在 PR 說明。OKX `50101`／`50102` 仍待真實回應確認。（2026-10-13）
 - [x] **RV-04 資料庫逾時**（P0；R5）— Pool 設定 `connectionTimeoutMillis`、`keepAlive`，執行期連線設定 `statement_timeout`（migration 例外）；心跳本身有逾時，不會因為一次卡住就永久停止。完成測試：連到不可達位址在設定時間內失敗；超時的查詢被中止；心跳卡住後能恢復。實作：連線 10 秒、語句 30 秒、等待回應 40 秒、閒置 transaction 60 秒、TCP keepalive；心跳 5 秒；`migrate` 不設語句上限；狀態不明的連線被銷毀而不回到 pool；CLI 與 health 能辨認連線逾時。（2026-10-13）
 - [x] **RV-05 CI**（P0；需操作人同意使用 GitHub Actions 免費額度）— 每個 PR 跑 `npm ci`、typecheck、build、全部測試（PostgreSQL 17 service、Node 依 `.node-version`）。完成測試：故意弄壞一個測試時 CI 失敗；README 記錄 CI 與本機指令的對應。實作：`.github/workflows/ci.yml`（ubuntu-24.04、PostgreSQL 17、Node 依 `.node-version`，actions 以 commit 釘住）；同一個 PR 先以故意失敗的測試證明 CI 會失敗，再移除。操作人已於 2026-10-13 同意。（2026-10-13）
+- [x] **RV-06 矛盾資料可見**（P1；R6）— 相同 `dedupe_key`、不同 payload 時，記錄衝突（獨立的 append-only 表或 audit），不再靜默丟棄。完成測試：相同內容重送仍是 no-op；不同內容留下可查詢的衝突紀錄。實作：`events.fact_sha256`（只涵蓋事實本身，不含 provenance 與 `observed_at`）與 append-only 的 `event_conflicts`（migration `0004`）；health 對近 24 小時的矛盾給出 `EVENT_CONFLICTS`（需注意）。0004 之前存的事件沒有 hash，比對時由已存的欄位推導，結果與寫入時計算的相同。（2026-10-13）

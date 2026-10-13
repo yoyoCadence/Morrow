@@ -28,8 +28,10 @@ export interface IngestSummary {
   /** Why nothing was parsed, or null when it was. */
   readonly skipped: 'NOT_OK' | 'NO_PARSER' | 'ALREADY_PROCESSED' | null;
   readonly eventsInserted: number;
-  /** Events whose dedupe key was already stored. */
+  /** Events whose dedupe key was already stored, including the conflicting ones. */
   readonly eventsExisting: number;
+  /** Events that contradict the one already stored under their dedupe key; kept in event_conflicts. */
+  readonly eventsConflicting: number;
   readonly quarantined: number;
 }
 
@@ -61,7 +63,7 @@ export async function ingestRawObservation(pool: pg.Pool, rawObservationId: stri
   const row = result.rows[0];
   if (!row) throw new Error(`raw observation ${rawObservationId} does not exist`);
 
-  const nothing = { rawObservationId, eventsInserted: 0, eventsExisting: 0, quarantined: 0 };
+  const nothing = { rawObservationId, eventsInserted: 0, eventsExisting: 0, eventsConflicting: 0, quarantined: 0 };
   const parser = parserFor(row.provider, row.capability);
   if (!parser) return { ...nothing, parserVersion: null, skipped: 'NO_PARSER' };
   // Only a successful answer describes the market. An error body is evidence of the error, nothing more.
@@ -85,8 +87,11 @@ export async function ingestRawObservation(pool: pg.Pool, rawObservationId: stri
       return { ...nothing, parserVersion: parser.version, skipped: 'ALREADY_PROCESSED' };
     }
     let eventsInserted = 0;
+    let eventsConflicting = 0;
     for (const event of parsed.events) {
-      if ((await appendEvent(tx, event)).inserted) eventsInserted += 1;
+      const appended = await appendEvent(tx, event);
+      if (appended.inserted) eventsInserted += 1;
+      if (appended.conflicting) eventsConflicting += 1;
     }
     let quarantined = 0;
     for (const field of parsed.quarantined) {
@@ -104,6 +109,7 @@ export async function ingestRawObservation(pool: pg.Pool, rawObservationId: stri
       skipped: null,
       eventsInserted,
       eventsExisting: parsed.events.length - eventsInserted,
+      eventsConflicting,
       quarantined,
     };
   });

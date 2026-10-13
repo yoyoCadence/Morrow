@@ -104,6 +104,7 @@ Migration 在 [apps/runtime/migrations](../apps/runtime/migrations)，每個檔�
 | `source_health` | 可變 | 每個供應商功能的目前狀態（投影） |
 | `provider_probes` | append-only | 每一次權限探測的結果 |
 | `audit_log` | append-only | 操作與狀態變更 |
+| `event_conflicts` | append-only | 同一個 `dedupe_key` 卻說了不同事實的事件，原樣保存（`0004`）。`events.fact_sha256` 是判斷依據 |
 | `parse_quarantine` | append-only | Parser 收到但不猜測解讀的欄位（例如單位未確認），保存原文與原因（`0002`） |
 
 Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。

@@ -88,6 +88,7 @@ const FINDING_LABELS: Record<HealthReport['findings'][number]['code'], string> =
   QUOTA_WARN: '額度已過警告線',
   QUOTA_HARD_STOP: '額度已達硬性上限，請求停止',
   JOBS_DEAD: '有失敗終止的工作',
+  EVENT_CONFLICTS: '同一個事實出現互相矛盾的內容',
 };
 
 function Findings({ findings }: { findings: HealthReport['findings'] }) {
