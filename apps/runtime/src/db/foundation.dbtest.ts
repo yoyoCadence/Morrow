@@ -175,6 +175,17 @@ test('an event stored before facts were hashed is compared through a hash derive
   assert.equal(recorded.rowCount, 1);
 });
 
+test('a confidence is stored exactly as given, and one the column would round is refused', async () => {
+  const key = `test:event:${Math.random()}`;
+  await appendEvent(db.pool, { ...event(key), confidence: '0.123456' });
+  const stored = await db.pool.query<{ confidence: string }>('SELECT confidence::text AS confidence FROM events WHERE dedupe_key = $1', [key]);
+  assert.equal(stored.rows[0]?.confidence, '0.123456');
+
+  const finer = `test:event:${Math.random()}`;
+  await assert.rejects(appendEvent(db.pool, { ...event(finer), confidence: '0.1234567' }), /at most 6 decimal places/);
+  assert.equal((await db.pool.query('SELECT 1 FROM events WHERE dedupe_key = $1', [finer])).rowCount, 0);
+});
+
 test('an invalid event is rejected before it reaches the database', async () => {
   const key = `test:event:${Math.random()}`;
   await assert.rejects(appendEvent(db.pool, { ...event(key), subject: 'MINDS' }));

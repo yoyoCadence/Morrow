@@ -55,6 +55,7 @@ test('malformed events are rejected', () => {
     ['local time', (e) => (e.observed_at = '2026-10-05T20:00:00+08:00')],
     ['confidence above 1', (e) => (e.confidence = '1.5')],
     ['float confidence', (e) => (e.confidence = 0.5)],
+    ['confidence finer than storage keeps', (e) => (e.confidence = '0.1234567')],
     ['wrong schema version', (e) => (e.schema_version = SCHEMA_VERSION + 1)],
     ['empty dedupe key', (e) => (e.dedupe_key = '')],
     ['unknown field', (e) => (e.extra = true)],
@@ -64,6 +65,12 @@ test('malformed events are rejected', () => {
     const event = structuredClone(validEvent()) as Record<string, unknown>;
     mutate(event);
     assert.equal(NewEvent.safeParse(event).success, false, name);
+  }
+});
+
+test('a confidence with up to six decimal places is accepted', () => {
+  for (const confidence of ['0', '1', '0.5', '0.123456', '1.000000']) {
+    assert.equal(NewEvent.safeParse({ ...validEvent(), confidence }).success, true, confidence);
   }
 });
 

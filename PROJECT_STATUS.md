@@ -43,7 +43,7 @@
 
 ### Automated
 
-`npm test`：**191 個測試全部通過**，其中 89 個不需要資料庫，102 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
+`npm test`：**193 個測試全部通過**，其中 90 個不需要資料庫，103 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
 
 #### 審查修正（2026-10-13 起）
 
@@ -57,6 +57,7 @@
 | RV-04 資料庫逾時 | 連線、語句、等待回應、閒置 transaction 都有上限，心跳另有 5 秒上限；`migrate` 不設語句上限；狀態不明的連線被銷毀 | 新增 7 個測試（含一個只接受連線、從不回應的假伺服器）；審查時連到黑洞位址會無限期等待，現在 10 秒後回報 `connection timed out` |
 | RV-05 CI | GitHub Actions：ubuntu-24.04、Node 24.19.0、PostgreSQL 17.11 service container；typecheck、build、全部測試、migration 冒煙測試；actions 以 commit 釘住，不使用 secret | 同一個 PR 先推一個故意失敗的測試：[run 38411115251](https://github.com/yoyoCadence/Morrow/actions/runs/38411115251) 為 185 個測試中 1 個失敗（只有該測試），job 失敗；移除後重跑為綠。審查與 RV-01～RV-04 是在 PostgreSQL 16 上驗證的，這是之後第一次在目標版本 17 上跑完整測試 |
 | RV-06 矛盾資料可見 | 同一個 `dedupe_key` 卻說了不同事實的事件，記錄在 append-only 的 `event_conflicts`（migration `0004`）；同一個事實重送仍是 no-op；health 對近 24 小時的矛盾給出「需注意」 | 新增 7 個測試：canonical JSON、fact hash 不受 provenance／key 順序／時間寫法影響、矛盾只記錄一次且保留證據、0004 之前的事件以推導的 hash 比對、health finding。Codex review 的 2 個意見（舊事件無法比對、`schema_version` 不應計入）都已修正 |
+| RV-07 `confidence` 精度 | 契約限制最多 6 位小數，與 `events.confidence numeric(7,6)` 一致；更細的值在寫入前被拒絕，不再被資料庫靜默四捨五入 | 新增 2 個測試（可接受的值、存回的值與送出的完全相同），並在拒絕案例中加入 7 位小數 |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
