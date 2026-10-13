@@ -330,11 +330,21 @@ test('failures back off exponentially up to five minutes, and one success clears
   assert.equal(recovered.lastFailureAt?.getTime(), NOW.getTime(), 'the last failure time is kept as history');
 });
 
-test('a 404 shows the provider is reachable but is not counted as a success', () => {
+test('a rejected request is neither healthy nor an outage: counted, not backed off', () => {
   const health = healthAfter({ outcome: 'NOT_FOUND', httpStatus: 404, retryAfterMs: null });
-  assert.equal(health.state, 'HEALTHY');
+  assert.equal(health.state, 'REQUEST_REJECTED');
   assert.equal(health.lastOutcome, 'NOT_FOUND');
-  assert.equal(health.lastSuccessAt, null);
+  assert.equal(health.lastSuccessAt, null, 'no data came back');
+  assert.equal(health.lastFailureAt?.getTime(), NOW.getTime());
+  assert.equal(health.blockedUntil, null, 'the provider answered; there is nothing to back off from');
+  assert.equal(shouldSuppress(health, 'scheduled', NOW), false);
+
+  // An OKX error code it does not recognise, inside an HTTP 200, is the same.
+  const again = healthAfter({ outcome: 'CLIENT_ERROR', httpStatus: 200, retryAfterMs: null }, health);
+  assert.deepEqual([again.state, again.consecutiveFailures], ['REQUEST_REJECTED', 2]);
+
+  const recovered = healthAfter({ outcome: 'OK', httpStatus: 200, retryAfterMs: null }, again);
+  assert.deepEqual([recovered.state, recovered.consecutiveFailures], ['HEALTHY', 0]);
 });
 
 test('outcomes where nothing was sent leave health untouched', () => {

@@ -311,12 +311,13 @@ test('a server error marks the source down and backs off', async () => {
   assert.equal(hitsFor('/boom').length, 2);
 });
 
-test('a 404 is an answer about the request, not an outage', async () => {
+test('a 404 is an answer about the request: not an outage, and not healthy either', async () => {
   const { client } = harness();
   const cap = capability('dexscreener');
   assert.equal((await client.request({ capability: cap, spec: get('/missing'), reason: 'scheduled' })).outcome, 'NOT_FOUND');
+  assert.deepEqual(await health(cap), { state: 'REQUEST_REJECTED', last_outcome: 'NOT_FOUND', consecutive_failures: 1, blocked_until: null });
+  assert.equal((await client.request({ capability: cap, spec: get('/ok'), reason: 'scheduled' })).outcome, 'OK', 'not suppressed');
   assert.equal((await health(cap))?.state, 'HEALTHY');
-  assert.equal((await client.request({ capability: cap, spec: get('/ok'), reason: 'scheduled' })).outcome, 'OK');
 });
 
 test('a slow provider times out and the failure is stored without a payload', async () => {

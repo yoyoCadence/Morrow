@@ -35,6 +35,13 @@ export const SOURCE_STATES = [
   'UNAUTHORIZED',
   'CREDENTIAL_MISSING',
   'DOWN',
+  /**
+   * The provider answered, and the answer was an error about the request: a
+   * 404, another 4xx, or an error inside a 2xx body that is not about
+   * credentials or limits. The source is reachable, but this capability did
+   * not deliver data. Not backed off, and never shown as healthy.
+   */
+  'REQUEST_REJECTED',
 ] as const;
 export const SourceState = z.enum(SOURCE_STATES);
 export type SourceState = z.infer<typeof SourceState>;
@@ -49,6 +56,11 @@ export const SourceHealthView = z.strictObject({
   blocked_until: UtcTimestamp.nullable(),
   last_success_at: UtcTimestamp.nullable(),
   last_failure_at: UtcTimestamp.nullable(),
+  /**
+   * Machine-readable reason of the last outcome when it was a failure, for
+   * example `OKX_CODE_50113`; null when there is none or no request was sent.
+   */
+  last_error_class: z.string().nullable(),
   updated_at: UtcTimestamp,
 });
 export type SourceHealthView = z.infer<typeof SourceHealthView>;
@@ -97,9 +109,65 @@ export const SessionGapView = z.strictObject({
 });
 export type SessionGapView = z.infer<typeof SessionGapView>;
 
+/**
+ * Overall status, from best to worst. The worst finding decides it.
+ *
+ * - ok: nothing to report.
+ * - attention: works, but incomplete or close to a limit. Missing
+ *   credentials, a rejected request, a quota past its warning line.
+ * - degraded: something that should be working is not. A source down or
+ *   blocked, a stopped heartbeat, no worker where one is needed, a hard
+ *   quota stop, a dead job.
+ * - critical: the report itself cannot be trusted or nothing can run. The
+ *   database is unreachable, or the schema does not match this build.
+ */
+export const HEALTH_LEVELS = ['ok', 'attention', 'degraded', 'critical'] as const;
+export const HealthLevel = z.enum(HEALTH_LEVELS);
+export type HealthLevel = z.infer<typeof HealthLevel>;
+
+export const HEALTH_FINDING_CODES = [
+  'DATABASE_UNREACHABLE',
+  'MIGRATION_STATE_INVALID',
+  'MIGRATIONS_PENDING',
+  'STATUS_QUERY_FAILED',
+  'SESSION_STALE',
+  'WORKER_NOT_RUNNING',
+  'SOURCE_DOWN',
+  'SOURCE_RATE_LIMITED',
+  'SOURCE_UNAUTHORIZED',
+  'SOURCE_PAYMENT_REQUIRED',
+  'SOURCE_REQUEST_REJECTED',
+  'SOURCE_CREDENTIAL_MISSING',
+  'QUOTA_WARN',
+  'QUOTA_HARD_STOP',
+  'JOBS_DEAD',
+] as const;
+export const HealthFindingCode = z.enum(HEALTH_FINDING_CODES);
+export type HealthFindingCode = z.infer<typeof HealthFindingCode>;
+
+/** One reason the status is not `ok`. */
+export const HealthFinding = z.strictObject({
+  severity: z.enum(['attention', 'degraded', 'critical']),
+  code: HealthFindingCode,
+  /** What it is about, for example `worker` or `okx/token.holders`; null for the system as a whole. */
+  subject: z.string().nullable(),
+  /** Short English detail for the operator. Never contains a secret. */
+  detail: z.string(),
+});
+export type HealthFinding = z.infer<typeof HealthFinding>;
+
+/** The worst level among the findings, or `ok` when there are none. */
+export function overallLevel(findings: readonly Pick<HealthFinding, 'severity'>[]): HealthLevel {
+  let worst = 0;
+  for (const finding of findings) worst = Math.max(worst, HEALTH_LEVELS.indexOf(finding.severity));
+  return HEALTH_LEVELS[worst] ?? 'critical';
+}
+
 /** Response of `GET /api/health`. */
 export const HealthReport = z.strictObject({
-  status: z.enum(['ok', 'degraded']),
+  status: HealthLevel,
+  /** Why the status is what it is, worst first. Empty when the status is `ok`. */
+  findings: z.array(HealthFinding),
   time: UtcTimestamp,
   version: z.string(),
   mode: z.enum(['OFF', 'RESEARCH', 'PAPER']),

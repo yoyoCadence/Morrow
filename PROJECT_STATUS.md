@@ -42,7 +42,7 @@
 
 ### Automated
 
-`npm test`：**175 個測試全部通過**，其中 83 個不需要資料庫，92 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
+`npm test`：**177 個測試全部通過**，其中 83 個不需要資料庫，94 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
 
 #### 審查修正（2026-10-13 起）
 
@@ -52,6 +52,7 @@
 |---|---|---|
 | RV-01 Health 新鮮度 | Session 多了推導出來的 `liveness`；有心跳中斷的程序，或 `RESEARCH`／`PAPER` 下沒有活著的 worker，health 就不是 `ok`；`npm run stop` 能辨認已經死掉的程序 | 新增 2 個 DB 測試；實機 `kill -9` worker 後，health 為 `degraded`、worker 為 `STALE`，`npm run stop` 立即回報 not running |
 | RV-02 Parser 單筆隔離 | 契約無法表示的數值（例如 `1e-120`、`1e+100`、97 位數）在欄位層級成為 `UNKNOWN (NOT_REPRESENTABLE)` 並保存原文；仍不符合契約的 pair 以 `SCHEMA_REJECTED` 進 quarantine；parser 升版為 `dexscreener-tokens@2` | 新增 3 個測試：兩個 pair 的回應產生 2 個事件，正常的 pair 與單獨解析時完全相同；ingest 不丟錯 |
+| RV-03 來源狀態與四級整體狀態 | 新的來源狀態 `REQUEST_REJECTED`（migration `0003`）；health 為 `ok`／`attention`／`degraded`／`critical`，並列出每一個原因（`findings`）；來源檢視顯示錯誤類別（例如 `OKX_CODE_51000`）；dashboard 頁首列出原因 | 新增 2 個 DB 測試（嚴重度與錯誤類別、`0003` 的資料轉換），更新 3 個；截圖確認亮色與深色 |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|

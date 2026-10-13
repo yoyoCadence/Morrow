@@ -208,6 +208,7 @@ test('health is degraded, with the reason, when something is wrong', async (t) =
   let report = await read();
   assert.equal(report.status, 'degraded');
   assert.deepEqual(report.sources.map((source) => [source.provider, source.state, source.last_outcome]), [['dexscreener', 'DOWN', 'TLS_UNTRUSTED']]);
+  assert.deepEqual(report.findings.map((finding) => [finding.code, finding.subject]), [['SOURCE_DOWN', 'dexscreener/market.tokens']]);
 
   await db.pool.query("UPDATE source_health SET state = 'HEALTHY', last_outcome = 'OK'");
   assert.equal((await read()).status, 'ok');
@@ -250,6 +251,57 @@ test('a process that stopped heartbeating is reported, and so is a missing worke
   assert.equal((await report('OFF')).status, 'ok');
 });
 
+test('missing credentials need attention, an outage is degraded, and the worst finding decides', async (t) => {
+  const db = await freshDb(t);
+  await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");
+  const report = async (): Promise<HealthReport> =>
+    HealthReport.parse(await buildHealthReport({ pool: db.pool, mode: 'RESEARCH', version: 'test' }));
+  const setSource = (capability: string, state: string, outcome: string, failures = 0, rawId: string | null = null) =>
+    db.pool.query(
+      `INSERT INTO source_health (provider, capability, state, last_outcome, consecutive_failures, last_raw_observation_id)
+       VALUES ('okx', $1, $2, $3, $4, $5)
+       ON CONFLICT (provider, capability) DO UPDATE SET state = $2, last_outcome = $3, consecutive_failures = $4,
+         last_raw_observation_id = COALESCE($5, source_health.last_raw_observation_id)`,
+      [capability, state, outcome, failures, rawId],
+    );
+
+  await setSource('token.holders', 'CREDENTIAL_MISSING', 'CREDENTIAL_MISSING');
+  let current = await report();
+  assert.equal(current.status, 'attention', 'not configured yet is not an outage');
+  assert.deepEqual(current.findings.map((finding) => [finding.severity, finding.code]), [['attention', 'SOURCE_CREDENTIAL_MISSING']]);
+
+  // An OKX error code inside an HTTP 200: the class comes from the stored observation.
+  const raw = await storeRawObservation(db.pool, {
+    provider: 'okx', providerGroup: 'okx', capability: 'market.trades', requestMethod: 'GET',
+    requestUrl: 'https://web3.okx.com/x', requestFingerprint: 'c'.repeat(64), reason: 'scheduled',
+    outcome: 'CLIENT_ERROR', httpStatus: 200, contentType: 'application/json', body: Buffer.from('{"code":"51000"}'),
+    errorClass: 'OKX_CODE_51000', errorDetail: 'Parameter error', durationMs: 5, observedAt: new Date(), runSessionId: null,
+  });
+  await setSource('market.trades', 'REQUEST_REJECTED', 'CLIENT_ERROR', 1, raw.id);
+  current = await report();
+  assert.equal(current.status, 'attention', 'one rejected request may be about that request');
+  assert.equal(current.sources.find((source) => source.capability === 'market.trades')?.last_error_class, 'OKX_CODE_51000');
+  assert.match(current.findings.find((finding) => finding.code === 'SOURCE_REQUEST_REJECTED')?.detail ?? '', /OKX_CODE_51000/);
+
+  await setSource('market.trades', 'REQUEST_REJECTED', 'CLIENT_ERROR', 3);
+  assert.equal((await report()).status, 'degraded', 'rejected every time means the capability is broken');
+
+  // No request was sent this time, so the older observation's class does not belong to this outcome.
+  await setSource('market.trades', 'CREDENTIAL_MISSING', 'CREDENTIAL_MISSING');
+  current = await report();
+  assert.equal(current.sources.find((source) => source.capability === 'market.trades')?.last_error_class, null);
+  assert.equal(current.status, 'attention');
+
+  await db.pool.query(
+    "INSERT INTO quota_counters (provider, bucket, period_start, used) VALUES ('okx', 'basic', date_trunc('month', now() AT TIME ZONE 'UTC')::date, 70000)",
+  );
+  assert.deepEqual((await report()).findings.map((finding) => finding.code).sort(), ['QUOTA_WARN', 'SOURCE_CREDENTIAL_MISSING', 'SOURCE_CREDENTIAL_MISSING']);
+  await db.pool.query("UPDATE quota_counters SET used = 85000 WHERE provider = 'okx' AND bucket = 'basic'");
+  current = await report();
+  assert.equal(current.status, 'degraded');
+  assert.equal(current.findings[0]?.code, 'QUOTA_HARD_STOP', 'worst first');
+});
+
 test('health says so when the schema is behind or the database is unreachable', async (t) => {
   const unmigrated = await freshDb(t, { migrate: false });
   const port = 8787;
@@ -258,7 +310,8 @@ test('health says so when the schema is behind or the database is unreachable', 
   const app = await buildApiServer({ pool: unmigrated.pool, logger: silentLogger, mode: 'OFF', version: 'test', port });
   defer(t, () => app.close());
   const behind = HealthReport.parse((await app.inject({ url: '/api/health', headers })).json());
-  assert.equal(behind.status, 'degraded');
+  assert.equal(behind.status, 'critical', 'nothing can start against this schema');
+  assert.deepEqual(behind.findings.map((finding) => [finding.severity, finding.code]), [['critical', 'MIGRATIONS_PENDING']]);
   assert.equal(behind.database.reachable, true);
   assert.ok(behind.database.migrations_pending >= 1);
   assert.match(behind.database.problem ?? '', /migrations are pending/);
@@ -268,7 +321,8 @@ test('health says so when the schema is behind or the database is unreachable', 
   const down = await buildApiServer({ pool: deadPool, logger: silentLogger, mode: 'OFF', version: 'test', port });
   defer(t, () => down.close());
   const unreachable = HealthReport.parse((await down.inject({ url: '/api/health', headers })).json());
-  assert.equal(unreachable.status, 'degraded');
+  assert.equal(unreachable.status, 'critical');
+  assert.deepEqual(unreachable.findings.map((finding) => finding.code), ['DATABASE_UNREACHABLE']);
   assert.equal(unreachable.database.reachable, false);
   assert.match(unreachable.database.problem ?? '', /database unreachable/);
   assert.doesNotMatch(unreachable.database.problem ?? '', /unusedPassw0rd/);

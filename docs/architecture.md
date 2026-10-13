@@ -72,7 +72,19 @@ API 只讀資料庫，不呼叫供應商。**所有對外的供應商請求都�
 | 憑證驗證失敗 | `TLS_UNTRUSTED` | 視為來源不可用。不會關閉 TLS 驗證，也不會信任攔截者的憑證 |
 | 逾時、連線失敗、5xx | `TIMEOUT`／`NETWORK_ERROR`／`SERVER_ERROR` | 指數退避，5 秒起、5 分鐘封頂 |
 | 額度用盡 | `QUOTA_HARD_STOP` | 不送出，直到下一個計費週期 |
+| HTTP 404、其他 4xx，或 2xx 本文裡與憑證、額度無關的錯誤 | `NOT_FOUND`／`CLIENT_ERROR`，來源狀態 `REQUEST_REJECTED` | 供應商有回應，所以不退避；但沒有拿到資料，所以不是 `HEALTHY`。連續 3 次以上，health 視為異常 |
 | 比例欄位的單位未確認 | 該欄位為 `UNKNOWN (UNIT_UNVERIFIED)` | 不猜測換算 |
+
+### 整體狀態
+
+`GET /api/health` 的每一個問題都是一筆 finding，帶有嚴重度；最嚴重的那一筆決定整體狀態（`HEALTH_LEVELS`）：
+
+| 狀態 | 意義 | 例子 |
+|---|---|---|
+| `ok` | 沒有要回報的事 | — |
+| `attention` | 可以運作，但設定不完整或接近上限 | 沒有憑證、一次被拒絕的請求、額度過警告線 |
+| `degraded` | 應該運作的東西沒有在運作 | 來源 `DOWN`／限流／權限或付費被拒、程序心跳中斷、需要觀測的模式卻沒有 worker、額度硬停、dead job、連續被拒絕的功能 |
+| `critical` | 報告本身不可信，或什麼都無法執行 | 資料庫無法連線、migration 狀態與程式不符或尚未套用 |
 
 ## 資料庫
 

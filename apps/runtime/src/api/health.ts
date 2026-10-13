@@ -1,4 +1,13 @@
-import type { EnabledMode, HealthReport, SessionGapView, SessionView } from '@morrow/core';
+import {
+  overallLevel,
+  type EnabledMode,
+  type HealthFinding,
+  type HealthReport,
+  type QuotaView,
+  type SessionGapView,
+  type SessionView,
+  type SourceHealthView,
+} from '@morrow/core';
 import type pg from 'pg';
 import { getMigrationStatus, MigrationError } from '../db/migrate.js';
 import { pgErrorCode } from '../db/pool.js';
@@ -49,6 +58,95 @@ async function latestSessions(pool: pg.Pool): Promise<SessionView[]> {
   }));
 }
 
+/** A capability rejected this many times in a row is broken, not unlucky. */
+export const REPEATED_REJECTIONS = 3;
+
+const SEVERITY_ORDER: Record<HealthFinding['severity'], number> = { critical: 0, degraded: 1, attention: 2 };
+
+function sourceFinding(source: SourceHealthView): HealthFinding | null {
+  const subject = `${source.provider}/${source.capability}`;
+  const why = [source.last_outcome, source.last_http_status !== null ? `HTTP ${source.last_http_status}` : null, source.last_error_class]
+    .filter(Boolean)
+    .join(', ');
+  switch (source.state) {
+    case 'HEALTHY':
+      return null;
+    case 'CREDENTIAL_MISSING':
+      return { severity: 'attention', code: 'SOURCE_CREDENTIAL_MISSING', subject, detail: 'no credential is configured; nothing is sent' };
+    case 'REQUEST_REJECTED': {
+      const repeated = source.consecutive_failures >= REPEATED_REJECTIONS;
+      return {
+        severity: repeated ? 'degraded' : 'attention',
+        code: 'SOURCE_REQUEST_REJECTED',
+        subject,
+        detail: `${why}; ${source.consecutive_failures} in a row`,
+      };
+    }
+    case 'RATE_LIMITED':
+      return { severity: 'degraded', code: 'SOURCE_RATE_LIMITED', subject, detail: why };
+    case 'UNAUTHORIZED':
+      return { severity: 'degraded', code: 'SOURCE_UNAUTHORIZED', subject, detail: `${why}; blocked until a probe re-tests it` };
+    case 'PAYMENT_REQUIRED':
+      return { severity: 'degraded', code: 'SOURCE_PAYMENT_REQUIRED', subject, detail: `${why}; nothing is paid` };
+    case 'DOWN':
+      return { severity: 'degraded', code: 'SOURCE_DOWN', subject, detail: `${why}; ${source.consecutive_failures} in a row` };
+  }
+}
+
+function quotaFinding(bucket: QuotaView): HealthFinding | null {
+  const subject = `${bucket.provider}/${bucket.bucket}`;
+  const detail = `${bucket.used} used; warn at ${bucket.warn_at}, hard stop at ${bucket.hard_stop_at}`;
+  if (bucket.state === 'HARD_STOP') return { severity: 'degraded', code: 'QUOTA_HARD_STOP', subject, detail };
+  if (bucket.state === 'WARN') return { severity: 'attention', code: 'QUOTA_WARN', subject, detail };
+  return null;
+}
+
+interface FindingInputs {
+  readonly mode: EnabledMode;
+  readonly sessions: readonly SessionView[];
+  readonly sources: readonly SourceHealthView[];
+  readonly quota: readonly QuotaView[];
+  readonly deadJobs: number;
+}
+
+/** Every reason the status is not ok, worst first. */
+export function healthFindings(inputs: FindingInputs): HealthFinding[] {
+  const findings: HealthFinding[] = [];
+  for (const session of inputs.sessions) {
+    if (session.liveness === 'STALE') {
+      findings.push({
+        severity: 'degraded',
+        code: 'SESSION_STALE',
+        subject: session.component,
+        detail: `RUNNING on record, but no heartbeat for more than ${LIVENESS_THRESHOLD_MS / 1000}s`,
+      });
+    }
+  }
+  // RESEARCH and PAPER exist to observe, and only the worker observes.
+  const workerLive = inputs.sessions.some((session) => session.component === 'worker' && session.liveness === 'LIVE');
+  if (inputs.mode !== 'OFF' && !workerLive) {
+    findings.push({
+      severity: 'degraded',
+      code: 'WORKER_NOT_RUNNING',
+      subject: 'worker',
+      detail: `${inputs.mode} observes through the worker, and no worker is heartbeating`,
+    });
+  }
+  for (const source of inputs.sources) {
+    const finding = sourceFinding(source);
+    if (finding) findings.push(finding);
+  }
+  for (const bucket of inputs.quota) {
+    const finding = quotaFinding(bucket);
+    if (finding) findings.push(finding);
+  }
+  if (inputs.deadJobs > 0) {
+    findings.push({ severity: 'degraded', code: 'JOBS_DEAD', subject: null, detail: `${inputs.deadJobs} job(s) ran out of attempts` });
+  }
+  // Stable sort: worst first, then in the order found.
+  return findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+}
+
 async function recentGaps(pool: pg.Pool): Promise<SessionGapView[]> {
   const result = await pool.query<{
     component: SessionGapView['component'];
@@ -72,10 +170,10 @@ function errorLabel(error: unknown): string {
 
 /**
  * Collects the operator's view of the system. It reports what is wrong
- * without hiding it: an unreachable database, a schema that does not match
- * this build, a source that is not healthy, an exhausted budget, a dead job,
- * a process that stopped heartbeating, or no live worker in a mode that
- * observes all make the status `degraded`.
+ * without hiding it, and says how bad: every problem is a finding with a
+ * severity, and the worst finding decides the status (see HEALTH_LEVELS).
+ * Missing credentials are not an outage, and an outage is not a database
+ * that cannot be reached.
  */
 export async function buildHealthReport(inputs: HealthInputs): Promise<HealthReport> {
   const now = (inputs.now ?? (() => new Date()))();
@@ -92,18 +190,28 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
     quota: [],
     jobs: { queued: 0, leased: 0, dead: 0 },
   };
-  const incomplete = (reachable: boolean, applied: number, pending: number, problem: string): HealthReport => ({
+  // Nothing past the database part could be read, so nothing past it is reported.
+  const incomplete = (
+    code: HealthFinding['code'],
+    database: { reachable: boolean; applied: number; pending: number; problem: string },
+  ): HealthReport => ({
     ...base,
     ...empty,
-    status: 'degraded',
-    database: { reachable, migrations_applied: applied, migrations_pending: pending, problem },
+    status: 'critical',
+    findings: [{ severity: 'critical', code, subject: null, detail: database.problem }],
+    database: {
+      reachable: database.reachable,
+      migrations_applied: database.applied,
+      migrations_pending: database.pending,
+      problem: database.problem,
+    },
   });
 
   try {
     await inputs.pool.query('SELECT 1');
   } catch (error) {
     inputs.logger?.error({ err: error }, 'health: database unreachable');
-    return incomplete(false, 0, 0, `database unreachable (${errorLabel(error)})`);
+    return incomplete('DATABASE_UNREACHABLE', { reachable: false, applied: 0, pending: 0, problem: `database unreachable (${errorLabel(error)})` });
   }
 
   let migrations;
@@ -112,11 +220,16 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
   } catch (error) {
     inputs.logger?.error({ err: error }, 'health: migration state is invalid');
     const problem = error instanceof MigrationError ? error.message : `cannot read migration state (${errorLabel(error)})`;
-    return incomplete(true, 0, 0, problem);
+    return incomplete('MIGRATION_STATE_INVALID', { reachable: true, applied: 0, pending: 0, problem });
   }
   if (migrations.pending > 0) {
     // Tables this build expects may not exist yet, so nothing else is queried.
-    return incomplete(true, migrations.applied, migrations.pending, 'migrations are pending; run "npm run migrate"');
+    return incomplete('MIGRATIONS_PENDING', {
+      reachable: true,
+      applied: migrations.applied,
+      pending: migrations.pending,
+      problem: 'migrations are pending; run "npm run migrate"',
+    });
   }
 
   try {
@@ -127,18 +240,11 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
       getQuotaViews(inputs.pool, now),
       countJobs(inputs.pool),
     ]);
-    // RESEARCH and PAPER exist to observe, and only the worker observes.
-    const observing = inputs.mode !== 'OFF';
-    const workerLive = sessions.some((session) => session.component === 'worker' && session.liveness === 'LIVE');
-    const degraded =
-      sources.some((source) => source.state !== 'HEALTHY') ||
-      quota.some((bucket) => bucket.state === 'HARD_STOP') ||
-      jobs.dead > 0 ||
-      sessions.some((session) => session.liveness === 'STALE') ||
-      (observing && !workerLive);
+    const findings = healthFindings({ mode: inputs.mode, sessions, sources, quota, deadJobs: jobs.dead });
     return {
       ...base,
-      status: degraded ? 'degraded' : 'ok',
+      status: overallLevel(findings),
+      findings,
       database: { reachable: true, migrations_applied: migrations.applied, migrations_pending: 0, problem: null },
       sessions,
       recent_gaps: gaps,
@@ -148,6 +254,11 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
     };
   } catch (error) {
     inputs.logger?.error({ err: error }, 'health: status query failed');
-    return incomplete(true, migrations.applied, 0, `status query failed (${errorLabel(error)})`);
+    return incomplete('STATUS_QUERY_FAILED', {
+      reachable: true,
+      applied: migrations.applied,
+      pending: 0,
+      problem: `status query failed (${errorLabel(error)})`,
+    });
   }
 }
