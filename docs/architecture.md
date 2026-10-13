@@ -138,7 +138,8 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 - **Slot**：時間依 slot 長度切段，對齊 UTC epoch（5 分鐘的排程在 :00、:05…，與 worker 何時啟動無關）。每個 slot 至多一個 job，dedupe key 是 `schedule:<名稱>:<slot 開始時間>`，payload 帶 `schedule` 與 `slot_start`。一個排程是每個 slot 一個 job，不是每個 token 一個；涵蓋多個對象（六個 active tokens、warm universe）的 handler 自己逐一處理。
 - **不補發**：觀測描述的是送出請求的那一刻，晚跑的 slot 拿到的是現在的資料，補不回錯過的時段。所以停機（或資料庫連不上）後只跑目前的 slot，錯過的 slot 記成一列 `NOT_SCHEDULED` 缺口。
-- **不堆積**：新的 slot 開始時，上一個 slot 的 job 若還沒開始執行（仍是 `queued`），這個 slot 就跳過，不排在它後面；連續跳過的 slot 在積壓結束時記成一列 `BACKLOG` 缺口。所以每個排程最多一個在執行、一個在等。
+- **不堆積**：新的 slot 開始時，上一個 slot 的 job 若還沒開始執行（仍是 `queued`），這個 slot 就跳過，不排在它後面；連續跳過的 slot 在積壓結束時記成一列 `BACKLOG` 缺口。所以每個排程最多一個在執行、一個在等。跳過的原因改變時（例如積壓中時鐘出問題），前一段在那裡結束，另起一段。
+- **時鐘不可信時暫停**：上述偏移的中位數超過 30 秒（不論快慢）時，新的 slot 不排入，記成 `CLOCK_SKEW` 缺口（藍圖 fail-safe：clock drift 超標時，恢復可信 freshness 後才繼續）。偏移未知（近 30 分鐘少於 3 筆回應）時不暫停：偏移只能從供應商的回應量測，未知就暫停會永遠等不到量測。代價是時鐘壞掉時，每當舊的量測過期（約 30 分鐘），會再送出幾個請求，量到偏移後再次暫停。`CLOCK_SKEW` 缺口的時間來自那個不準的時鐘。
 - **預設不重試**（`maxAttempts` 1）：下一個 slot 就是重試。
 - 只在 `RESEARCH`／`PAPER` 模式執行。`OFF` 期間的 slot，在之後以 `RESEARCH`／`PAPER` 啟動時記成 `NOT_SCHEDULED`。排程的 job 種類沒有 handler 時，worker 拒絕啟動（否則那個 job 永遠在等，之後每個 slot 都會被跳過）。
 - 每秒檢查一次；只有 slot 邊界過了才碰資料庫。狀態列以 `FOR UPDATE` 鎖住，加上 dedupe key，同一個 slot 只會排一次。
@@ -146,7 +147,7 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 ### 時鐘偏移
 
-每個回應的 `Date` header 存在 `raw_observations.server_date`（`0005`），同時存一個偏移估計 `clock_offset_ms`：`server_date + 500 ms` 減去「送出請求」與「收到回應 header」的中點。用 header 而不是 body 讀完的時間，否則傳輸緩慢的 body 會被算成時鐘偏移；加 500 ms 是因為 Date header 被截斷到秒。欄位是 bigint：時鐘差好幾年（例如主機板電池沒電）也要記得下來，不能溢位。Health 以近 30 分鐘、最多 20 筆的中位數估計本機時鐘與供應商的差（`clock.skew_ms`，正值表示本機較慢）；少於 3 筆時為 null，代表未知，不是 0。Date header 只有一秒的解析度，所以 5 秒以內視為雜訊。目前沒有任何工作依賴資料新鮮度做決策；第一個這樣的工作（排程、策略）必須在偏移超標時停止，這是藍圖 fail-safe 的要求。
+每個回應的 `Date` header 存在 `raw_observations.server_date`（`0005`），同時存一個偏移估計 `clock_offset_ms`：`server_date + 500 ms` 減去「送出請求」與「收到回應 header」的中點。用 header 而不是 body 讀完的時間，否則傳輸緩慢的 body 會被算成時鐘偏移；加 500 ms 是因為 Date header 被截斷到秒。欄位是 bigint：時鐘差好幾年（例如主機板電池沒電）也要記得下來，不能溢位。Health 以近 30 分鐘、最多 20 筆的中位數估計本機時鐘與供應商的差（`clock.skew_ms`，正值表示本機較慢）；少於 3 筆時為 null，代表未知，不是 0。Date header 只有一秒的解析度，所以 5 秒以內視為雜訊。偏移超標時依賴資料新鮮度的工作必須停止，這是藍圖 fail-safe 的要求：固定排程在偏移超過 30 秒時暫停新的 slot（見下方「固定排程」）；之後的策略也要遵守。
 
 ### 逾時
 

@@ -7,6 +7,7 @@ import { JobWorker, type JobHandler } from '../jobs/worker.js';
 import type { Logger } from '../logging/logger.js';
 import { ingestRawObservation, PARSE_JOB_KIND } from '../parsers/ingest.js';
 import { ProviderClient } from '../providers/client.js';
+import { CLOCK_SKEW_DEGRADED_MS, measureClockSkew } from '../providers/clock-skew.js';
 import { PROBE_JOB_KIND, runProbes } from '../providers/probes.js';
 import { keepSessionAlive, startSession, stopSession, type Component } from '../session/run-session.js';
 import { APP_VERSION } from '../version.js';
@@ -221,7 +222,17 @@ export async function startWorkerProcess(
         }),
     );
   for (const worker of workers) worker.start();
-  const scheduler = schedules.length > 0 ? new Scheduler({ pool: deps.pool, logger: deps.logger, schedules, sessionId }) : null;
+  const scheduler =
+    schedules.length > 0
+      ? new Scheduler({
+          pool: deps.pool,
+          logger: deps.logger,
+          schedules,
+          sessionId,
+          clockSkewMs: async () => (await measureClockSkew(deps.pool)).skew_ms,
+          maxClockSkewMs: CLOCK_SKEW_DEGRADED_MS,
+        })
+      : null;
   scheduler?.start();
   deps.logger.info(
     {

@@ -434,6 +434,30 @@ test('in RESEARCH the worker enqueues the current slot of each schedule and runs
   assert.match(jobs.rows[0]?.dedupe_key ?? '', /^schedule:test\.every-minute:\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
 });
 
+test('the worker holds its schedules while recent responses say the clock is off', async (t) => {
+  const db = await freshDb(t);
+  // Three recent responses whose Date headers put this machine's clock 40 s behind.
+  for (let i = 0; i < 3; i += 1) {
+    await db.pool.query(
+      `INSERT INTO raw_observations (provider, provider_group, capability, request_method, request_url, request_fingerprint,
+         reason, outcome, observed_at, server_date, clock_offset_ms)
+       VALUES ('dexscreener', 'dexscreener', 'market.tokens', 'GET', 'https://x', $1, 'scheduled', 'OK',
+         clock_timestamp(), clock_timestamp() + interval '40 seconds', 40000)`,
+      ['f'.repeat(64)],
+    );
+  }
+  const handlers = new Map<string, JobHandler>([['test.slot', async () => undefined]]);
+  const schedules = [{ name: 'test.every-minute', kind: 'test.slot', everyMs: 60_000 }];
+  const worker = await startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers, schedules });
+  defer(t, () => worker.stop('test'));
+
+  const state = () => db.pool.query<{ skip_reason: string | null }>("SELECT skip_reason FROM schedule_state WHERE name = 'test.every-minute'");
+  const deadline = Date.now() + 20_000;
+  while ((await state()).rowCount === 0 && Date.now() < deadline) await sleep(25);
+  assert.deepEqual((await state()).rows, [{ skip_reason: 'CLOCK_SKEW' }]);
+  assert.equal((await db.pool.query("SELECT 1 FROM jobs WHERE kind = 'test.slot'")).rowCount, 0, 'no request is sent on a clock that is 40 s off');
+});
+
 test('OFF mode runs no schedules, and a schedule nobody handles stops the start', async (t) => {
   const db = await freshDb(t);
   const schedules = [{ name: 'test.every-minute', kind: 'test.slot', everyMs: 60_000 }];

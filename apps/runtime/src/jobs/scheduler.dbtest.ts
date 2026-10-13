@@ -24,7 +24,13 @@ function minutely(overrides: Partial<Schedule> = {}): Schedule {
   return { name: `test.s${counter}`, kind: `test.slot${counter}`, everyMs: 60_000, ...overrides };
 }
 const at = (time: string) => new Date(`2026-10-14T${time}Z`);
-const advance = (schedule: Schedule, time: string) => advanceSchedule(db.pool, schedule, { at: at(time), sessionId });
+const advance = (schedule: Schedule, time: string, hold: 'CLOCK_SKEW' | null = null) =>
+  advanceSchedule(db.pool, schedule, { at: at(time), sessionId, hold });
+/** What happened to a slot, in one string. */
+const outcomeOf = async (schedule: Schedule, time: string, hold: 'CLOCK_SKEW' | null = null) => {
+  const outcome = await advance(schedule, time, hold);
+  return outcome.kind === 'skipped' ? `skipped ${outcome.reason}` : outcome.kind;
+};
 
 async function jobsOf(schedule: Schedule) {
   const rows = await db.pool.query<{ id: string; dedupe_key: string; status: string; payload: Record<string, unknown>; max_attempts: number }>(
@@ -92,8 +98,8 @@ test('after downtime only the current slot runs, and the missed slots are one ga
 test('a slot whose predecessor has not started is skipped, and the skipped run is one BACKLOG gap', async () => {
   const schedule = minutely();
   await advance(schedule, '03:00:00');
-  assert.equal((await advance(schedule, '03:01:00')).kind, 'skipped_backlog');
-  assert.equal((await advance(schedule, '03:02:00')).kind, 'skipped_backlog');
+  assert.equal(await outcomeOf(schedule, '03:01:00'), 'skipped BACKLOG');
+  assert.equal(await outcomeOf(schedule, '03:02:00'), 'skipped BACKLOG');
   assert.equal((await jobsOf(schedule)).length, 1, 'nothing piles up behind the waiting job');
   assert.deepEqual(await gapsOf(schedule), [], 'recorded when the backlog ends');
 
@@ -107,12 +113,31 @@ test('a backlog that runs into downtime ends where the downtime starts', async (
   await advance(schedule, '03:00:00');
   await advance(schedule, '03:01:00');
   // The worker stops with the 03:00 job still queued, and starts again at 03:10.
-  assert.equal((await advance(schedule, '03:10:00')).kind, 'skipped_backlog', 'the old job is still waiting');
+  assert.equal(await outcomeOf(schedule, '03:10:00'), 'skipped BACKLOG', 'the old job is still waiting');
   assert.deepEqual(await gapsOf(schedule), ['BACKLOG 03:01–03:02 ×1', 'NOT_SCHEDULED 03:02–03:10 ×8']);
 
   await run(schedule);
   assert.equal((await advance(schedule, '03:11:00')).kind, 'enqueued');
   assert.deepEqual(await gapsOf(schedule), ['BACKLOG 03:01–03:02 ×1', 'NOT_SCHEDULED 03:02–03:10 ×8', 'BACKLOG 03:10–03:11 ×1']);
+});
+
+test('slots are held while the clock cannot be trusted, and the held run is one CLOCK_SKEW gap', async () => {
+  const schedule = minutely();
+  assert.equal(await outcomeOf(schedule, '03:00:00', 'CLOCK_SKEW'), 'skipped CLOCK_SKEW', 'even the first slot');
+  assert.equal(await outcomeOf(schedule, '03:01:00', 'CLOCK_SKEW'), 'skipped CLOCK_SKEW');
+  assert.equal((await jobsOf(schedule)).length, 0, 'nothing is enqueued while the clock is off');
+  assert.equal(await outcomeOf(schedule, '03:02:00'), 'enqueued');
+  assert.deepEqual(await gapsOf(schedule), ['CLOCK_SKEW 03:00–03:02 ×2']);
+});
+
+test('a clock problem during a backlog ends the backlog run and starts its own', async () => {
+  const schedule = minutely();
+  await advance(schedule, '03:00:00');
+  assert.equal(await outcomeOf(schedule, '03:01:00'), 'skipped BACKLOG');
+  assert.equal(await outcomeOf(schedule, '03:02:00', 'CLOCK_SKEW'), 'skipped CLOCK_SKEW', 'held even though the old job waits');
+  await run(schedule);
+  assert.equal(await outcomeOf(schedule, '03:03:00'), 'enqueued');
+  assert.deepEqual(await gapsOf(schedule), ['BACKLOG 03:01–03:02 ×1', 'CLOCK_SKEW 03:02–03:03 ×1']);
 });
 
 test('a changed slot length starts a new series, and a clock moving back enqueues nothing', async () => {
@@ -140,6 +165,44 @@ test('concurrent ticks enqueue a slot once', async () => {
   assert.deepEqual(await gapsOf(schedule), []);
 });
 
+/** Scheduler options apart from the pool, logger and schedules: a clock that agrees with the providers. */
+const options = () => ({ sessionId, clockSkewMs: async (): Promise<number | null> => 0, maxClockSkewMs: 30_000 });
+
+test('the scheduler holds slots while the measured clock skew is too large, in either direction', async () => {
+  const schedule = minutely();
+  let skew: number | null = 45_000;
+  let now = at('03:00:00');
+  const { logger, output } = capturingLogger((text) => text);
+  const scheduler = new Scheduler({ ...options(), pool: db.pool, logger, schedules: [schedule], now: () => now, clockSkewMs: async () => skew });
+
+  await scheduler.tick();
+  assert.equal((await jobsOf(schedule)).length, 0);
+  assert.match(output(), /slot held: this machine's clock is too far/);
+  skew = -45_000;
+  now = at('03:01:00');
+  await scheduler.tick();
+  assert.equal((await jobsOf(schedule)).length, 0, 'a clock that is ahead is held too');
+
+  skew = null;
+  now = at('03:02:00');
+  await scheduler.tick();
+  assert.equal((await jobsOf(schedule)).length, 1, 'unknown is not held: only requests can measure it');
+  assert.deepEqual(await gapsOf(schedule), ['CLOCK_SKEW 03:00–03:02 ×2']);
+
+  const unmeasurable = new Scheduler({
+    ...options(),
+    pool: db.pool,
+    logger,
+    schedules: [minutely()],
+    now: () => now,
+    clockSkewMs: async () => {
+      throw new Error('database gone');
+    },
+  });
+  await unmeasurable.tick();
+  assert.match(output(), /clock skew could not be measured; schedules wait/);
+});
+
 test('the scheduler touches the database once per slot and survives a failing one', async () => {
   const schedule = minutely();
   let now = at('03:00:05');
@@ -153,7 +216,7 @@ test('the scheduler touches the database once per slot and survives a failing on
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  const scheduler = new Scheduler({ pool, logger, schedules: [schedule], sessionId, now: () => now });
+  const scheduler = new Scheduler({ ...options(), pool, logger, schedules: [schedule], now: () => now });
 
   await scheduler.tick();
   assert.equal(connections, 1);
@@ -170,7 +233,7 @@ test('the scheduler touches the database once per slot and survives a failing on
 
   const dead = createPool('postgres://unused@127.0.0.1:1/unused', { applicationName: 'morrow-test' });
   try {
-    const failing = new Scheduler({ pool: dead, logger, schedules: [minutely()], sessionId, now: () => now });
+    const failing = new Scheduler({ ...options(), pool: dead, logger, schedules: [minutely()], now: () => now });
     await failing.tick();
   } finally {
     await dead.end();
