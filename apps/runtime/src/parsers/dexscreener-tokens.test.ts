@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
 import { NewEvent, PairSnapshot } from '@morrow/core';
-import { dexscreenerTokensParser, DEXSCREENER_TOKENS_PARSER_VERSION } from './dexscreener-tokens.js';
+import { acceptSnapshot, dexscreenerTokensParser, DEXSCREENER_TOKENS_PARSER_VERSION } from './dexscreener-tokens.js';
+import { bodyWithExtremePair, EXTREME_POOL } from './fixtures/dexscreener-tokens-extreme.js';
 import { WSOL_TOKENS_RESPONSE } from './fixtures/dexscreener-tokens-wsol.js';
-import type { StoredObservation } from './types.js';
+import type { QuarantinedField, StoredObservation } from './types.js';
 
 const WSOL = 'So11111111111111111111111111111111111111112';
 const USDC = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
@@ -188,4 +189,39 @@ test('the same pool listed twice in one response is one event', () => {
   const pairs = JSON.parse(WSOL_TOKENS_RESPONSE.body) as unknown[];
   const result = dexscreenerTokensParser.parse(observation(JSON.stringify([pairs[0], pairs[0]])));
   assert.equal(result.events.length, 1);
+});
+
+test('one pair with numbers the contract cannot carry does not cost the others', () => {
+  const body = bodyWithExtremePair();
+  const alone = dexscreenerTokensParser.parse(observation(WSOL_TOKENS_RESPONSE.body));
+  const result = dexscreenerTokensParser.parse(observation(body));
+  assert.equal(result.events.length, 2, 'both pairs become events');
+  assert.deepEqual(result.events[0]?.payload, alone.events[0]?.payload, 'the ordinary pair is exactly as it would be alone');
+
+  const extreme = PairSnapshot.parse(result.events[1]?.payload);
+  assert.equal(extreme.pool_address, EXTREME_POOL);
+  for (const value of [extreme.price_usd, extreme.price_in_quote, extreme.liquidity_usd, extreme.txns.m5.buys]) {
+    assert.deepEqual(value, { state: 'UNKNOWN', reason: 'NOT_REPRESENTABLE' });
+  }
+  assert.deepEqual(extreme.txns.m5.sells, { state: 'KNOWN', value: '245' }, 'the rest of that pair is kept');
+
+  const kept = Object.fromEntries(
+    result.quarantined.filter((field) => field.reason === 'NOT_REPRESENTABLE').map((field) => [field.fieldPath, field.rawValue]),
+  );
+  assert.deepEqual(kept, {
+    '$[1].priceUsd': '1e-120',
+    '$[1].priceNative': '9'.repeat(97),
+    '$[1].liquidity.usd': '1e+100',
+    '$[1].txns.m5.buys': '1e+100',
+  }, 'the exact source text is kept for a later parser');
+});
+
+test('a pair that fails the contract anyway is quarantined whole, not thrown', () => {
+  const quarantined: QuarantinedField[] = [];
+  assert.equal(acceptSnapshot({ pool_address: 'not an address' }, '$[3]', 'x', quarantined), null);
+  assert.deepEqual(quarantined, [{ recordRef: 'x', fieldPath: '$[3]', rawValue: null, reason: 'SCHEMA_REJECTED' }]);
+
+  const valid = dexscreenerTokensParser.parse(observation(WSOL_TOKENS_RESPONSE.body)).events[0]?.payload;
+  assert.deepEqual(acceptSnapshot(valid, '$[0]', POOL, quarantined), valid);
+  assert.equal(quarantined.length, 1);
 });

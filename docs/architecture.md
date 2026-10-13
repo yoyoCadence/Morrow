@@ -36,7 +36,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 | `session/` | 執行階段、心跳、觀測缺口 |
 | `quota/` | 額度政策與帳本 |
 | `providers/` | 供應商定義、功能清單、HTTP 客戶端、來源健康狀態、probe |
-| `parsers/` | 把已存的供應商回應解析成 canonical events 與欄位 quarantine；只讀已存證據，不連線 |
+| `parsers/` | 把已存的供應商回應解析成 canonical events 與欄位 quarantine；只讀已存證據，不連線。單一筆記錄的問題只影響那一筆：無法表示的欄位為 `UNKNOWN`，不符合契約的記錄整筆進 quarantine，同一回應的其他記錄照常產生事件 |
 | `api/` | Fastify 伺服器與健康報告 |
 | `app/` | 把上述組成 API 與 worker 兩個程序 |
 | `cli.ts` | 指令進入點 |

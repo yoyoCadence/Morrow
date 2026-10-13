@@ -5,6 +5,7 @@ import { withTransaction } from '../db/pool.js';
 import { storeRawObservation, type RawObservationInput } from '../db/raw-store.js';
 import { createTestDb, type TestDb } from '../test-support/db.js';
 import { dexscreenerTokensParser, DEXSCREENER_TOKENS_PARSER_VERSION } from './dexscreener-tokens.js';
+import { bodyWithExtremePair } from './fixtures/dexscreener-tokens-extreme.js';
 import { WSOL_TOKENS_RESPONSE } from './fixtures/dexscreener-tokens-wsol.js';
 import { enqueueParse, ingestRawObservation, PARSE_JOB_KIND } from './ingest.js';
 
@@ -144,4 +145,15 @@ test('a parse job is created once per observation and parser version, and not at
     /abort/,
   );
   assert.equal(await count("jobs WHERE kind = $1 AND payload->>'raw_observation_id' NOT IN (SELECT id::text FROM raw_observations)", [PARSE_JOB_KIND]), 0);
+});
+
+test('a response with one unrepresentable pair is ingested, not retried until it dies', async () => {
+  const raw = await storeRawObservation(db.pool, observation({ body: Buffer.from(bodyWithExtremePair(), 'utf8') }));
+  const summary = await ingestRawObservation(db.pool, raw.id);
+  assert.equal(summary.skipped, null);
+  assert.equal(summary.eventsInserted, 2);
+  assert.equal(
+    await count("parse_quarantine WHERE raw_observation_id = $1 AND reason = 'NOT_REPRESENTABLE'", [raw.id]),
+    4,
+  );
 });
