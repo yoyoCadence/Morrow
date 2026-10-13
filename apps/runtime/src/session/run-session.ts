@@ -13,6 +13,13 @@ export const HEARTBEAT_INTERVAL_MS = 5_000;
  * is recorded as a stall.
  */
 export const LIVENESS_THRESHOLD_MS = 30_000;
+/**
+ * A heartbeat that takes longer than this fails and the next one tries
+ * again. It must stay well below the liveness threshold, or one slow
+ * heartbeat (a lock wait, a dead connection) would make a live process look
+ * gone.
+ */
+export const HEARTBEAT_TIMEOUT_MS = 5_000;
 
 export class SessionConflictError extends Error {
   constructor(component: Component, pid: number, host: string) {
@@ -174,8 +181,10 @@ export async function heartbeat(
   sessionId: string,
   component: Component,
   stallThresholdMs: number = LIVENESS_THRESHOLD_MS,
+  timeoutMs: number = HEARTBEAT_TIMEOUT_MS,
 ): Promise<HeartbeatResult> {
   return withTransaction(pool, async (tx) => {
+    await tx.query("SELECT set_config('statement_timeout', $1, true)", [String(timeoutMs)]);
     const result = await tx.query<{ previous: Date; current: Date; stop_requested_at: Date | null }>(
       `WITH previous AS (
          SELECT last_heartbeat_at FROM run_sessions WHERE id = $1 AND status = 'RUNNING' FOR UPDATE
@@ -298,6 +307,7 @@ export interface SessionKeeperOptions {
   readonly sessionId: string;
   readonly component: Component;
   readonly intervalMs?: number;
+  readonly heartbeatTimeoutMs?: number;
   /** Called once when the process should shut down: a stop was requested or the session was lost. */
   readonly onShutdownRequested: (reason: 'stop_requested' | 'session_lost') => void;
   readonly onStall?: (gap: SessionGap) => void;
@@ -311,7 +321,7 @@ export function keepSessionAlive(options: SessionKeeperOptions): () => void {
   const timer = setInterval(() => {
     if (busy || notified) return;
     busy = true;
-    heartbeat(options.pool, options.sessionId, options.component)
+    heartbeat(options.pool, options.sessionId, options.component, LIVENESS_THRESHOLD_MS, options.heartbeatTimeoutMs)
       .then((result) => {
         if (result.status === 'lost') {
           notified = true;

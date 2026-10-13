@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import net, { type AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { migrationChecksum } from './db/migrate.js';
@@ -83,6 +84,30 @@ test('an unreachable database is reported plainly, without a stack trace or the 
     assert.match(result?.stderr ?? '', /Cannot reach the database \(ECONNREFUSED\)/);
     assert.doesNotMatch(result?.stderr ?? '', /unusedPassw0rd|\n\s+at /);
   }
+});
+
+test('a database that accepts connections but never answers is reported, not waited on forever', async (t) => {
+  const sockets: net.Socket[] = [];
+  const silent = net.createServer((socket) => void sockets.push(socket));
+  await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve));
+  t.after(() => {
+    for (const socket of sockets) socket.destroy();
+    silent.close();
+  });
+  const url = `postgres://morrow:unusedPassw0rd@127.0.0.1:${(silent.address() as AddressInfo).port}/morrow`;
+
+  const [migrate, status] = await Promise.all([
+    runCli(['migrate'], { MORROW_DATABASE_URL: url }),
+    runCli(['status'], { MORROW_DATABASE_URL: url }),
+  ]);
+  assert.equal(migrate.status, 1);
+  assert.match(migrate.stderr, /Cannot reach the database \(connection timed out\)/);
+  assert.doesNotMatch(migrate.stderr, /unusedPassw0rd|\n\s+at /);
+
+  assert.equal(status.status, 1);
+  const report = JSON.parse(status.stdout) as { status: string; database: { problem: string } };
+  assert.equal(report.status, 'critical');
+  assert.equal(report.database.problem, 'database unreachable (connection timed out)');
 });
 
 test('probe does nothing in OFF mode', async () => {

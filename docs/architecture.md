@@ -117,6 +117,19 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 這不是 exactly-once。對外部系統有副作用的 handler 必須自己能安全地重複執行。
 
+### 逾時
+
+每一條連線都有上限，所以資料庫出問題時，程序會得到錯誤，而不是無限期等待（[db/pool.ts](../apps/runtime/src/db/pool.ts)）：
+
+| 設定 | 值 | 作用 |
+|---|---|---|
+| `connectionTimeoutMillis` | 10 秒 | 建立連線的上限 |
+| `statement_timeout` | 30 秒（migration 為 0） | 伺服器端：單一語句的執行與等待 lock 的時間 |
+| `query_timeout` | 40 秒 | 本程序等待回應的上限；處理伺服器無法察覺的斷線（例如休眠後的半開連線）。逾時的連線會被銷毀，不回到 pool |
+| `idle_in_transaction_session_timeout` | 60 秒 | 被遺忘的 transaction 由伺服器結束，釋放 lock |
+| TCP keepalive | 10 秒後開始 | 察覺閒置連線的對端已消失 |
+| 心跳 | 5 秒 | 心跳自己的語句上限，遠低於 30 秒的存活門檻；一次卡住只會讓那次心跳失敗，下一次照常 |
+
 ### 時間
 
 所有時間以 UTC 儲存，UI 顯示 Asia/Taipei。每筆觀測分開保存三個時間：

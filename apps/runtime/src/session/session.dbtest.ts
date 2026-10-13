@@ -3,6 +3,7 @@ import { test, type TestContext } from 'node:test';
 import { createTestDb, type TestDb } from '../test-support/db.js';
 import {
   heartbeat,
+  keepSessionAlive,
   LIVENESS_THRESHOLD_MS,
   requestStop,
   SessionConflictError,
@@ -246,4 +247,42 @@ test('waiting for a stop: a clean stop, a silent process and a busy one are told
   assert.deepEqual(await waitForStop(db.pool, ['worker'], { timeoutMs: 100, pollMs: 20 }), [
     { component: 'worker', result: 'still_running' },
   ]);
+});
+
+test('a heartbeat stuck behind a lock fails fast, and the next one goes through', async (t) => {
+  const db = await freshDb(t);
+  const { sessionId } = await startSession(db.pool, input());
+  const before = (await sessionRow(db, sessionId))?.last_heartbeat_at.getTime() ?? 0;
+
+  // Another transaction holds the session row.
+  const holder = await db.pool.connect();
+  await holder.query('BEGIN');
+  await holder.query('SELECT 1 FROM run_sessions WHERE id = $1 FOR UPDATE', [sessionId]);
+
+  const started = Date.now();
+  await assert.rejects(heartbeat(db.pool, sessionId, 'worker', LIVENESS_THRESHOLD_MS, 150), (error: { code?: string }) => error.code === '57014');
+  assert.ok(Date.now() - started < 2_000, 'it gave up instead of waiting for the lock');
+
+  // The keeper reports the failure and keeps beating once the lock is gone.
+  const errors: unknown[] = [];
+  const stop = keepSessionAlive({
+    pool: db.pool,
+    sessionId,
+    component: 'worker',
+    intervalMs: 20,
+    heartbeatTimeoutMs: 150,
+    onShutdownRequested: () => assert.fail('nothing asked it to stop'),
+    onError: (error) => errors.push(error),
+  });
+  t.after(stop);
+  const deadline = Date.now() + 5_000;
+  while (errors.length === 0 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.ok(errors.length > 0, 'the stuck heartbeat was reported');
+
+  await holder.query('ROLLBACK');
+  holder.release();
+  while (((await sessionRow(db, sessionId))?.last_heartbeat_at.getTime() ?? 0) <= before && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.ok(((await sessionRow(db, sessionId))?.last_heartbeat_at.getTime() ?? 0) > before, 'heartbeats resumed');
 });
