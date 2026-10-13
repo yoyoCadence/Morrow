@@ -89,7 +89,14 @@ const FINDING_LABELS: Record<HealthReport['findings'][number]['code'], string> =
   QUOTA_HARD_STOP: '額度已達硬性上限，請求停止',
   JOBS_DEAD: '有失敗終止的工作',
   EVENT_CONFLICTS: '同一個事實出現互相矛盾的內容',
+  CLOCK_SKEW: '本機時鐘與供應商的時間不一致',
 };
+
+function formatSkew(clock: HealthReport['clock']): string {
+  if (clock.skew_ms === null) return `未知（近期回應不足，${clock.samples} 個樣本）`;
+  const seconds = clock.skew_ms / 1000;
+  return `${seconds >= 0 ? '+' : ''}${seconds.toFixed(1)} 秒（${clock.samples} 個樣本）`;
+}
 
 function Findings({ findings }: { findings: HealthReport['findings'] }) {
   if (findings.length === 0) return null;
@@ -116,6 +123,7 @@ function Report({ report }: { report: HealthReport }) {
         <span>模式 {report.mode}</span>
         <span>版本 {report.version}</span>
         <span>伺服器時間 {formatTime(report.time)}（台北）</span>
+        <span title="供應商回應的 Date header 減去本機收到的時間；正值表示本機時鐘較慢">時鐘偏移 {formatSkew(report.clock)}</span>
       </div>
       <Findings findings={report.findings} />
 

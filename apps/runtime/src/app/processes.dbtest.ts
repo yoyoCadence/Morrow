@@ -303,6 +303,43 @@ test('missing credentials need attention, an outage is degraded, and the worst f
   assert.equal(current.findings[0]?.code, 'QUOTA_HARD_STOP', 'worst first');
 });
 
+test("a clock that disagrees with the providers' is reported, and too few samples is unknown", async (t) => {
+  const db = await freshDb(t);
+  await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");
+  const report = async (): Promise<HealthReport> =>
+    HealthReport.parse(await buildHealthReport({ pool: db.pool, mode: 'RESEARCH', version: 'test' }));
+  // Responses whose estimated clock offset is `skewSeconds`.
+  const responses = async (count: number, skewSeconds: number) => {
+    for (let i = 0; i < count; i += 1) {
+      await db.pool.query(
+        `INSERT INTO raw_observations (provider, provider_group, capability, request_method, request_url, request_fingerprint,
+           reason, outcome, observed_at, server_date, clock_offset_ms)
+         VALUES ('dexscreener', 'dexscreener', 'market.tokens', 'GET', 'https://x', $1, 'scheduled', 'OK',
+           clock_timestamp(), clock_timestamp() + make_interval(secs => $2), $2 * 1000)`,
+        ['f'.repeat(64), skewSeconds],
+      );
+    }
+  };
+
+  assert.deepEqual((await report()).clock, { skew_ms: null, samples: 0 });
+  await responses(2, 40);
+  assert.deepEqual((await report()).clock, { skew_ms: null, samples: 2 }, 'two responses are not enough to say');
+  assert.equal((await report()).status, 'ok');
+
+  await responses(1, 40);
+  let current = await report();
+  assert.ok(Math.abs((current.clock.skew_ms ?? 0) - 40_000) < 1_000, `skew ${current.clock.skew_ms}`);
+  assert.deepEqual(current.findings.map((finding) => [finding.severity, finding.code]), [['degraded', 'CLOCK_SKEW']]);
+  assert.match(current.findings[0]?.detail ?? '', /about 40s behind/);
+
+  // The median, not the worst sample: a few odd responses do not decide it.
+  await responses(4, 8);
+  current = await report();
+  assert.equal(current.findings[0]?.severity, 'attention');
+  await responses(10, 0);
+  assert.equal((await report()).status, 'ok');
+});
+
 test('a contradiction between events needs attention', async (t) => {
   const db = await freshDb(t);
   await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");

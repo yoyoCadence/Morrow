@@ -142,6 +142,7 @@ export const HEALTH_FINDING_CODES = [
   'QUOTA_HARD_STOP',
   'JOBS_DEAD',
   'EVENT_CONFLICTS',
+  'CLOCK_SKEW',
 ] as const;
 export const HealthFindingCode = z.enum(HEALTH_FINDING_CODES);
 export type HealthFindingCode = z.infer<typeof HealthFindingCode>;
@@ -192,5 +193,16 @@ export const HealthReport = z.strictObject({
   }),
   /** Contradictions recorded in event_conflicts during the last 24 hours. */
   recent_event_conflicts: z.number().int().min(0),
+  /**
+   * How far this machine's clock is from the providers', estimated from the
+   * Date headers of recent responses: the median of their clock offsets
+   * (provider time minus ours at the moment the headers arrived). Positive
+   * means our clock is behind. Null when there are too few recent responses
+   * to say; that is unknown, not zero.
+   */
+  clock: z.strictObject({
+    skew_ms: z.number().int().nullable(),
+    samples: z.number().int().min(0),
+  }),
 });
 export type HealthReport = z.infer<typeof HealthReport>;

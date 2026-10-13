@@ -138,6 +138,29 @@ interface Attempt {
   readonly contentType: string | null;
   readonly errorClass: string | null;
   readonly errorDetail: string | null;
+  /** The provider's clock, from the Date header. */
+  readonly serverDate: Date | null;
+  /** Provider clock minus ours, estimated when the headers arrived. */
+  readonly clockOffsetMs: number | null;
+}
+
+/**
+ * Provider clock minus ours, in ms. The server stamped its Date somewhere
+ * between our sending and our receiving the headers, so it is compared with
+ * the midpoint of the two; the body is not waited for, or a slow transfer
+ * would count as skew. A Date header is truncated to the second, so 500 ms
+ * centres it.
+ */
+export function clockOffsetMs(serverDate: Date, sentAt: Date, headersAt: Date): number {
+  const midpoint = (sentAt.getTime() + headersAt.getTime()) / 2;
+  return Math.round(serverDate.getTime() + 500 - midpoint);
+}
+
+/** A Date header as a time, or null when it is absent or not a date. */
+export function parseServerDate(header: string | null): Date | null {
+  if (header === null) return null;
+  const ms = Date.parse(header);
+  return Number.isNaN(ms) ? null : new Date(ms);
 }
 
 /**
@@ -181,8 +204,8 @@ export class ProviderClient {
       return notSent('SUPPRESSED', `${provider.id} is rate limited across all capabilities`);
     }
 
-    const authorized = provider.authorize(spec, credentials, startedAt);
-    if (!authorized) {
+    // Checked before quota is charged: without credentials nothing is sent.
+    if (!provider.authorize(spec, credentials, startedAt)) {
       const next = nextHealth(health, { outcome: 'CREDENTIAL_MISSING', httpStatus: null, retryAfterMs: null }, startedAt);
       if (next) await writeSourceHealth(pool, provider.id, capability.capability, next, null);
       return notSent('CREDENTIAL_MISSING', 'credentials for this provider are not configured');
@@ -207,8 +230,13 @@ export class ProviderClient {
 
     await this.#limiter(provider).acquire();
 
+    // Authorised again now, after any wait: a signature carries the time it
+    // was made (OKX rejects one outside a short window), so it must be made
+    // when the request leaves, not when it started queueing.
     const sentAt = this.#now();
-    const attempt = await this.#send(provider, authorized, spec.method);
+    const authorized = provider.authorize(spec, credentials, sentAt);
+    if (!authorized) throw new Error(`${provider.id} credentials disappeared while the request was queued`);
+    const attempt = await this.#send(provider, authorized, spec.method, sentAt);
     const observedAt = this.#now();
 
     const stored = await withTransaction(pool, async (tx) => {
@@ -228,6 +256,8 @@ export class ProviderClient {
         errorDetail: attempt.errorDetail,
         durationMs: Math.max(0, observedAt.getTime() - sentAt.getTime()),
         observedAt,
+        serverDate: attempt.serverDate,
+        clockOffsetMs: attempt.clockOffsetMs,
         runSessionId: this.#options.getRunSessionId?.() ?? null,
       });
       const next = nextHealth(health, attempt.info, observedAt);
@@ -261,7 +291,7 @@ export class ProviderClient {
     return limiter;
   }
 
-  async #send(provider: ProviderDefinition, authorized: AuthorizedRequest, method: 'GET' | 'POST'): Promise<Attempt> {
+  async #send(provider: ProviderDefinition, authorized: AuthorizedRequest, method: 'GET' | 'POST', sentAt: Date): Promise<Attempt> {
     const doFetch = this.#options.fetch ?? fetch;
     try {
       const response = await doFetch(authorized.url, {
@@ -272,6 +302,9 @@ export class ProviderClient {
         redirect: 'manual',
         signal: AbortSignal.timeout(this.#options.timeoutMs ?? 15_000),
       });
+      // fetch resolves when the headers arrive, before the body is read.
+      const headersAt = this.#now();
+      const serverDate = parseServerDate(response.headers.get('date'));
       const body = await readBody(response, this.#options.maxBodyBytes ?? 8 * 1024 * 1024);
       const byStatus = classifyStatus(response.status);
       // A 2xx is only OK if the body agrees, for providers that report errors inside it.
@@ -286,6 +319,8 @@ export class ProviderClient {
         contentType: response.headers.get('content-type'),
         errorClass: verdict?.errorClass ?? null,
         errorDetail: verdict ? this.#options.redact(verdict.errorDetail).slice(0, 1000) : null,
+        serverDate,
+        clockOffsetMs: serverDate === null ? null : clockOffsetMs(serverDate, sentAt, headersAt),
       };
     } catch (error) {
       if (error instanceof ResponseTooLargeError) {
@@ -321,6 +356,8 @@ function failed(outcome: RequestOutcome, errorClass: string, errorDetail: string
     contentType: null,
     errorClass,
     errorDetail: errorDetail.slice(0, 1000),
+    serverDate: null,
+    clockOffsetMs: null,
   };
 }
 
