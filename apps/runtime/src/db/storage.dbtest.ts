@@ -53,5 +53,5 @@ test('storage counts rows and the last day of growth, and says when growth is un
   assert.ok(report.databaseBytes > 0);
   const known = report.tables.reduce((sum, table) => sum + (table.bytesLastDay ?? 0), 0);
   assert.equal(report.knownBytesLastDay, known);
-  assert.deepEqual(report.unknownGrowth, ['quota_counters', 'schema_migrations', 'source_health'], 'the tables left out of the sum');
+  assert.deepEqual(report.unknownGrowth, ['quota_counters', 'schedule_state', 'schema_migrations', 'source_health'], 'the tables left out of the sum');
 });

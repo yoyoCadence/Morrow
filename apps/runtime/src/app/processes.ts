@@ -2,10 +2,12 @@ import type pg from 'pg';
 import { API_HOST, buildApiServer } from '../api/server.js';
 import type { AppConfig } from '../config/config.js';
 import { getMigrationStatus } from '../db/migrate.js';
+import { type Schedule, Scheduler, validateSchedules } from '../jobs/scheduler.js';
 import { JobWorker, type JobHandler } from '../jobs/worker.js';
 import type { Logger } from '../logging/logger.js';
 import { ingestRawObservation, PARSE_JOB_KIND } from '../parsers/ingest.js';
 import { ProviderClient } from '../providers/client.js';
+import { CLOCK_SKEW_DEGRADED_MS, measureClockSkew } from '../providers/clock-skew.js';
 import { PROBE_JOB_KIND, runProbes } from '../providers/probes.js';
 import { keepSessionAlive, startSession, stopSession, type Component } from '../session/run-session.js';
 import { APP_VERSION } from '../version.js';
@@ -143,6 +145,17 @@ export function defaultHandlers(deps: ProcessDeps, getSessionId: () => string): 
 }
 
 /**
+ * The fixed schedules the worker runs in RESEARCH and PAPER mode. None yet:
+ * the only job kinds so far are parse (triggered by evidence) and probe (run
+ * by hand). Each blueprint cadence (docs/plans/active-plan.md, 固定排程:
+ * Jupiter recent every 60 s, OKX hot-token every 5 minutes, ...) is added
+ * here together with the handler it needs.
+ */
+export function defaultSchedules(_deps: ProcessDeps): Schedule[] {
+  return [];
+}
+
+/**
  * Job kinds that only read and write the local database. They run in the
  * local lane, so a slow provider never delays them. Every other kind runs in
  * the network lane, one job at a time behind the shared rate limiter. The
@@ -169,16 +182,33 @@ export async function startWorkerProcess(
   deps: ProcessDeps & {
     /** Replaces the default handlers. Tests use this to stay off the network. */
     readonly handlers?: ReadonlyMap<string, JobHandler>;
+    /** Replaces the default schedules. */
+    readonly schedules?: readonly Schedule[];
   },
 ): Promise<RunningProcess> {
   await assertSchemaCurrent(deps.pool, deps.migrationsDir);
-  const { sessionId, gap } = await startSession(deps.pool, {
+  // Schedules run only where providers may be contacted. Slots that pass in
+  // OFF mode are recorded as gaps when a later RESEARCH or PAPER run starts.
+  const schedules = deps.config.mode === 'OFF' ? [] : (deps.schedules ?? defaultSchedules(deps));
+  validateSchedules(schedules);
+  // Handlers read the session id only when a job runs, after it is known.
+  let sessionId = '';
+  const handlers = deps.handlers ?? defaultHandlers(deps, () => sessionId);
+  // A slot job nobody handles would stay queued, and every later slot would be skipped behind it.
+  const unhandled = schedules.filter((schedule) => !handlers.has(schedule.kind));
+  if (unhandled.length > 0) {
+    throw new Error(`No handler for the job kind of schedule(s): ${unhandled.map((schedule) => schedule.name).join(', ')}`);
+  }
+
+  const started = await startSession(deps.pool, {
     component: 'worker',
     mode: deps.config.mode,
     appVersion: APP_VERSION,
   });
+  sessionId = started.sessionId;
+  const { gap } = started;
 
-  const lanes = laneHandlers(deps.handlers ?? defaultHandlers(deps, () => sessionId));
+  const lanes = laneHandlers(handlers);
   const workers = (Object.entries(lanes) as [WorkerLane, Map<string, JobHandler>][])
     .filter(([, handlers]) => handlers.size > 0)
     .map(
@@ -192,11 +222,24 @@ export async function startWorkerProcess(
         }),
     );
   for (const worker of workers) worker.start();
+  const scheduler =
+    schedules.length > 0
+      ? new Scheduler({
+          pool: deps.pool,
+          logger: deps.logger,
+          schedules,
+          sessionId,
+          clockSkewMs: async () => (await measureClockSkew(deps.pool)).skew_ms,
+          maxClockSkewMs: CLOCK_SKEW_DEGRADED_MS,
+        })
+      : null;
+  scheduler?.start();
   deps.logger.info(
     {
       mode: deps.config.mode,
       sessionId,
       lanes: { local: [...lanes.local.keys()], network: [...lanes.network.keys()] },
+      schedules: schedules.map((schedule) => schedule.name),
       previousGap: gap?.kind ?? null,
     },
     'worker started',
@@ -208,6 +251,8 @@ export async function startWorkerProcess(
     );
   }
   return supervise(deps, 'worker', sessionId, async () => {
+    // No new slots once stopping; jobs already enqueued stay for the next run.
+    await scheduler?.stop();
     await Promise.all(workers.map((worker) => worker.stop()));
   });
 }

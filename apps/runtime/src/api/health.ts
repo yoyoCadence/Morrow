@@ -13,6 +13,7 @@ import { getMigrationStatus, MigrationError, type MigrationStatus } from '../db/
 import { isConnectionTimeout, isQueryReadTimeout, pgErrorCode } from '../db/pool.js';
 import { countJobs } from '../jobs/job-queue.js';
 import type { Logger } from '../logging/logger.js';
+import { CLOCK_SKEW_ATTENTION_MS, CLOCK_SKEW_DEGRADED_MS, measureClockSkew } from '../providers/clock-skew.js';
 import { listSourceHealth } from '../providers/source-health.js';
 import { getQuotaViews } from '../quota/quota-ledger.js';
 import { LIVENESS_THRESHOLD_MS } from '../session/run-session.js';
@@ -60,16 +61,6 @@ async function latestSessions(pool: pg.Pool): Promise<SessionView[]> {
 
 /** A capability rejected this many times in a row is broken, not unlucky. */
 export const REPEATED_REJECTIONS = 3;
-
-/**
- * Clock skew thresholds. A Date header has one-second resolution and the
- * network adds latency, so a few seconds is noise. Past 30 s, signed requests
- * start failing and every "how old is this data" judgement is off.
- */
-export const CLOCK_SKEW_ATTENTION_MS = 5_000;
-export const CLOCK_SKEW_DEGRADED_MS = 30_000;
-/** Fewer recent responses than this and the skew is not estimated. */
-export const CLOCK_SKEW_MIN_SAMPLES = 3;
 
 const SEVERITY_ORDER: Record<HealthFinding['severity'], number> = { critical: 0, degraded: 1, attention: 2 };
 
@@ -176,22 +167,6 @@ export function healthFindings(inputs: FindingInputs): HealthFinding[] {
   return findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
 }
 
-/** Median of the clock offsets estimated from recent responses (see clockOffsetMs). */
-async function clockSkew(pool: pg.Pool): Promise<HealthReport['clock']> {
-  const result = await pool.query<{ samples: number; median: number | null }>(
-    `SELECT count(*)::int AS samples, percentile_cont(0.5) WITHIN GROUP (ORDER BY clock_offset_ms) AS median
-       FROM (SELECT clock_offset_ms
-               FROM raw_observations
-              WHERE clock_offset_ms IS NOT NULL AND available_at > clock_timestamp() - interval '30 minutes'
-              ORDER BY available_at DESC
-              LIMIT 20) recent`,
-  );
-  const row = result.rows[0];
-  const samples = row?.samples ?? 0;
-  if (samples < CLOCK_SKEW_MIN_SAMPLES || row?.median === null || row?.median === undefined) return { skew_ms: null, samples };
-  return { skew_ms: Math.round(Number(row.median)), samples };
-}
-
 async function recentConflicts(pool: pg.Pool): Promise<number> {
   const result = await pool.query<{ n: number }>(
     "SELECT count(*)::int AS n FROM event_conflicts WHERE detected_at > clock_timestamp() - interval '24 hours'",
@@ -296,7 +271,7 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
       getQuotaViews(inputs.pool, now),
       countJobs(inputs.pool),
       recentConflicts(inputs.pool),
-      clockSkew(inputs.pool),
+      measureClockSkew(inputs.pool),
     ]);
     const findings = healthFindings({
       mode: inputs.mode,
