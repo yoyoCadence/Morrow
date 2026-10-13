@@ -118,6 +118,8 @@ Migration 在 [apps/runtime/migrations](../apps/runtime/migrations)，每個檔�
 
 Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
+各表的成長以 `npm run storage` 量測；保留策略見 [ADR-0001](adr/0001-storage-retention.md)（提案中）。新增資料表時，要在 `db/storage.ts` 的 `STORAGE_TIME_COLUMNS` 登記它的時間欄位（或 `null`），否則測試會失敗。
+
 ### 工作佇列的語意
 
 - **At-least-once**。`FOR UPDATE SKIP LOCKED` 讓多個 worker 各拿不同的工作；租約過期的工作會被重新派發。

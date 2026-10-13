@@ -115,6 +115,12 @@ API 每個請求在完成時寫一行（method、url、host、狀態碼、回應
 
 預設層級 `info` 下看不到成功的讀取；排查時以 `MORROW_LOG_LEVEL=debug` 啟動 API 即可看到每一個請求。
 
+## 儲存空間
+
+`npm run storage` 列出每張表的列數、大小（含索引與 TOAST）、近 24 小時新增的列數與估計的成長，最後是整個資料庫的大小與 30 天推算。`?` 表示該表沒有時間欄位（例如 `source_health` 這類可變的投影），成長未知，不是 0。計算列數會掃描每一張表，所以不放在儀表板或 `status` 裡；資料多時要等一下，逾時上限為 5 分鐘。
+
+實測每個 DEX Screener pair 快照約 4.8 KB，一半是 `parse_quarantine`。保留策略見 [ADR-0001](adr/0001-storage-retention.md)（提案中）。要重新量測：`npm run build:server` 後執行 `node --env-file-if-exists=.env scripts/measure-snapshot-storage.mjs`（使用測試資料庫的暫時 schema）。
+
 ## 網路
 
 Worker 需要能直接連到：

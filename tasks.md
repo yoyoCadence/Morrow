@@ -65,7 +65,7 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 ### 審查發現 — M2 之前完成
 
 - [ ] **RV-11b 一次性全域格式化**（P2；**需操作人決定**）— 以 `biome.json` 的設定執行 `npm run format`，之後在 CI 強制 `biome format`。實測會改寫 31 個檔案、約 +605／−228 行（行寬 120–160 都在 30 個檔案以上），所以 AGENTS.md §2 規定要先取得同意。做的話應該是一個只含格式化的 PR，並把該 commit 加入 `.git-blame-ignore-revs`。
-- [ ] **RV-13 儲存策略**（P1；D4、D5）— 先量測（FT-07），再決定：quarantine 是否改為每個 observation 一筆彙總、或只記錄新出現的原因；raw payload 與事件的保留期限；`jobs`、`consumer_inbox` 的清理。決策寫成 ADR。完成測試：依決策的保留規則不會刪到 replay 需要的證據。
+- [ ] **RV-13 儲存策略**（P1；D4、D5；**需操作人決定**）— 先量測（FT-07），再決定：quarantine 是否改為每個 observation 一筆彙總、或只記錄新出現的原因；raw payload 與事件的保留期限；`jobs`、`consumer_inbox` 的清理。決策寫成 ADR。完成測試：依決策的保留規則不會刪到 replay 需要的證據。進度：量測與提案已完成，見 [ADR-0001](docs/adr/0001-storage-retention.md)。實測每個 pair 快照約 4.8 KB，其中一半是可完全重建的 quarantine。等待操作人回答 ADR 的 4 個問題（磁碟預算、每天運作時數、是否採用 Q2、是否採用 J1），之後依決策實作（ADR 的「決定之後的實作」）。
 
 ### UI 改善
 
@@ -92,7 +92,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。
 - [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
 - [ ] **FT-06 備份與還原提前**（P1）— `pg_dump` 到資料目錄之外，並還原到獨立的測試資料庫驗證；不得覆蓋使用中的資料庫。
-- [ ] **FT-07 儲存量測**（P1，RV-13 的前置）— `morrow status` 顯示各資料表大小與每日成長。
 - [ ] **FT-08 決策日誌**（E3.1 的設計要求）— 每份 thesis 必須有機率、到期日、「什麼會證明我錯了」；到期自動產生 label，累積 Brier score。
 
 ### Not authorized
@@ -125,3 +124,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **RV-14 開發相依的弱點**（P2）— `source-map-js@1.2.1`（經 vite → postcss，只在建置時使用）升級到修正版，遵守 `.npmrc` 的 `min-release-age`。實作：只更新 lockfile，`source-map-js` 1.2.1 → 1.2.2（2026-09-30 發布，postcss 的 `^1.2.1` 範圍內）；`npm audit` 為 0。（2026-10-13）
 - [x] **RV-15 API 請求日誌**（P2；U9）— Health 輪詢不要每次寫 2 行 info 日誌（開著分頁每天約 1.7 萬行）；錯誤與非 GET 請求照常記錄。實作：Fastify 的 `logController`（`apps/runtime/src/api/request-log.ts`）把每個請求改為完成時寫一行，含 method、url、host、狀態碼與回應時間；成功的 GET／HEAD 記 debug（預設看不到，`MORROW_LOG_LEVEL=debug` 才顯示），Host／Origin 被拒（403）記 warn，其他 4xx 與所有非讀取請求記 info，5xx 記 error。（2026-10-13）
 - [x] **RV-12 Worker 的兩條隊伍與租約續租**（P1；D2、D3）— 同一個 worker 程序內分成「供應商請求」與「本機運算（parse 等）」兩個迴圈，節流器仍只有一份；長時間的 job 定期續租。完成測試：慢速供應商不會延遲 parse job；長 job 不會被重新派發。實作：worker 程序內 `local`（`raw.parse`，列在 `LOCAL_JOB_KINDS`）與 `network`（其他所有種類）兩個 `JobWorker` 迴圈，各自一次一個；沒有宣告為本機的種類一律走 `network`，避免新的供應商 job 意外與其他供應商請求並行。執行中的 job 每三分之一租約以 `renewLease` 續租，停止續租並等待進行中的續租完成之後才標記完成。續租同時修正了分成兩條隊伍才會出現的問題：最後一次嘗試的 job（例如 `maxAttempts: 1` 的 probe）超過租約時，另一條隊伍的輪詢會把仍在執行的 job 標記為 dead。Lease 遺失時目前只記錄，不會中斷 handler。（2026-10-13）
+- [x] **FT-07 儲存量測**（P1，RV-13 的前置）— `morrow status` 顯示各資料表大小與每日成長。實作：改為獨立的 `npm run storage`（`apps/runtime/src/db/storage.ts`），沒有放進 `status`：`status` 與 `/api/health` 是同一份報告，儀表板每幾秒輪詢一次，而計算列數要掃描每一張表。列出每張表的列數、大小（含索引與 TOAST）、近 24 小時新增的列數與估計成長，以及 30 天推算；沒有時間欄位的表顯示 `?`（未知，不是 0）。每張表都必須登記在 `STORAGE_TIME_COLUMNS`，有測試檢查。另附 `scripts/measure-snapshot-storage.mjs` 量測每個 pair 快照的成本。（2026-10-13）
