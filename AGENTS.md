@@ -43,6 +43,7 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
   - No new service cost in M0–M4. M5–M8 are roadmap only and are not authorized.
 - **Verification commands:** Run from the repo root. On a machine set up with `scripts\setup-toolchain.ps1`, dot-source `scripts\dev-env.ps1` first so `node` and `psql` are on PATH.
   - `npm run typecheck` — type-check core, runtime and web
+  - `npm run lint` — Biome lint (recommended rules; formatting is not enforced yet, see tasks.md RV-11b)
   - `npm run build` — production build of the server and the dashboard
   - `npm test` — all tests. Needs the local PostgreSQL running (`scripts\pg-local.ps1 start`) and `MORROW_TEST_DATABASE_URL` in `.env`
   - `npm run test:unit` — only the tests that need no database

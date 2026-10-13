@@ -194,15 +194,25 @@ function parseTokensResponse(observation: StoredObservation): ParseResult {
     const reject = (path: string, raw: unknown, reason: string): void => {
       quarantined.push({ recordRef: at, fieldPath: path, rawValue: rawText(raw), reason });
     };
-    if (!isJsonObject(item)) return reject(at, item, 'NOT_AN_OBJECT');
+    if (!isJsonObject(item)) {
+      reject(at, item, 'NOT_AN_OBJECT');
+      return;
+    }
 
     // A pair we cannot identify cannot become a record at all.
-    if (scalarOf(item['chainId']) !== 'solana') return reject(`${at}.chainId`, item['chainId'], 'UNSUPPORTED_CHAIN');
+    if (scalarOf(item['chainId']) !== 'solana') {
+      reject(`${at}.chainId`, item['chainId'], 'UNSUPPORTED_CHAIN');
+      return;
+    }
     const pool = item['pairAddress'];
-    if (typeof pool !== 'string' || !isSolanaAddress(pool)) return reject(`${at}.pairAddress`, pool, 'INVALID_ADDRESS');
+    if (typeof pool !== 'string' || !isSolanaAddress(pool)) {
+      reject(`${at}.pairAddress`, pool, 'INVALID_ADDRESS');
+      return;
+    }
     const baseMint = member(item['baseToken'], 'address');
     if (typeof baseMint !== 'string' || !isSolanaAddress(baseMint)) {
-      return reject(`${at}.baseToken.address`, baseMint, 'INVALID_ADDRESS');
+      reject(`${at}.baseToken.address`, baseMint, 'INVALID_ADDRESS');
+      return;
     }
     // The same pool listed twice in one response is one fact.
     if (seenPools.has(pool)) return;

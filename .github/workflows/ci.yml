@@ -50,6 +50,7 @@ jobs:
       - name: Install (lockfile only, no install scripts)
         run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm run build
       - run: npm test
       - name: Migration smoke check

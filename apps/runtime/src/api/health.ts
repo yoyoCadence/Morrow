@@ -9,7 +9,7 @@ import {
   type SourceHealthView,
 } from '@morrow/core';
 import type pg from 'pg';
-import { getMigrationStatus, MigrationError } from '../db/migrate.js';
+import { getMigrationStatus, MigrationError, type MigrationStatus } from '../db/migrate.js';
 import { isConnectionTimeout, isQueryReadTimeout, pgErrorCode } from '../db/pool.js';
 import { countJobs } from '../jobs/job-queue.js';
 import type { Logger } from '../logging/logger.js';
@@ -270,7 +270,7 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
     return incomplete('DATABASE_UNREACHABLE', { reachable: false, applied: 0, pending: 0, problem: `database unreachable (${errorLabel(error)})` });
   }
 
-  let migrations;
+  let migrations: MigrationStatus;
   try {
     migrations = await getMigrationStatus(inputs.pool, inputs.migrationsDir);
   } catch (error) {
