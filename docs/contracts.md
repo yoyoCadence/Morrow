@@ -26,6 +26,7 @@
 | Asset（識別） | **已定義** | `asset-id.ts` |
 | Asset（decimals、token program、authority、供給快照） | 未定義 | M1 |
 | Event | **已定義** | `event.ts` |
+| PairSnapshot（市場快照，`market/pair.snapshot` 的 payload） | **已定義** | `market.ts`（PR #5）。每個數值都是 `Observed`，單位未確認的欄位為 `UNKNOWN` |
 | RunSession | **已定義**（檢視用） | `health.ts`；資料表 `run_sessions`、`session_gaps` |
 | Wallet、Entity、Cluster | 未定義 | M2 |
 | Candidate | 未定義 | M2 |

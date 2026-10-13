@@ -36,6 +36,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 | `session/` | 執行階段、心跳、觀測缺口 |
 | `quota/` | 額度政策與帳本 |
 | `providers/` | 供應商定義、功能清單、HTTP 客戶端、來源健康狀態、probe |
+| `parsers/` | 把已存的供應商回應解析成 canonical events 與欄位 quarantine；只讀已存證據，不連線 |
 | `api/` | Fastify 伺服器與健康報告 |
 | `app/` | 把上述組成 API 與 worker 兩個程序 |
 | `cli.ts` | 指令進入點 |
@@ -55,7 +56,7 @@ API 只讀資料庫，不呼叫供應商。**所有對外的供應商請求都�
 3. **額度**：計量的供應商先向帳本預留。超過本地硬性上限就回 `QUOTA_HARD_STOP`，不送出。
 4. **節流**：依供應商的最小間隔排隊。
 5. **送出**：有逾時、有回應大小上限、不跟隨 redirect（避免憑證 header 被帶到別的主機）。先依 HTTP 狀態碼分類；供應商定義若有 `readEnvelope`（目前只有 OKX），2xx 回應還要回應本文同意才算 `OK`，本文裡的錯誤依代碼分類。
-6. **存證與更新健康狀態**：同一個 transaction 寫入 `raw_observations` 與 `source_health`。
+6. **存證與更新健康狀態**：同一個 transaction 寫入 `raw_observations` 與 `source_health`。結果是 `OK` 且該功能有 parser 時，同一個 transaction 也排入 `raw.parse` job（目前只有 DEX Screener `market.tokens`）。
 
 客戶端自己不重試。重試是一個新的請求，有自己的額度扣除，由工作佇列排程。
 
@@ -91,6 +92,7 @@ Migration 在 [apps/runtime/migrations](../apps/runtime/migrations)，每個檔�
 | `source_health` | 可變 | 每個供應商功能的目前狀態（投影） |
 | `provider_probes` | append-only | 每一次權限探測的結果 |
 | `audit_log` | append-only | 操作與狀態變更 |
+| `parse_quarantine` | append-only | Parser 收到但不猜測解讀的欄位（例如單位未確認），保存原文與原因（`0002`） |
 
 Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
@@ -134,7 +136,7 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 以下在藍圖中有設計，程式碼還不存在：
 
-- 供應商回應的 parser 與 adapter（M1、M2）
+- DEX Screener `tokens/v1` 以外的供應商回應 parser 與 adapter（M1、M2）
 - Asset、Wallet、Entity、Cluster、Candidate 等契約與資料表（M1、M2）
 - Paper ledger、quote model、risk、reservation、replay（M1）
 - Discovery、排序、cohort inventory（M2）

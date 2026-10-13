@@ -4,12 +4,26 @@ Use this file as the lightweight task board for this project unless the project 
 
 Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/active-plan.md) §4. Milestone gates are in [ROADMAP.md](ROADMAP.md); evidence for completed work is in [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
+`RV-`（修正）、`UI-`（介面）、`FT-`（功能）開頭的項目來自 [2026-10-13 專案審查](docs/reviews/2026-10-13-project-review.md)。括號內的 R／D／U 編號對應審查文件中的問題與證據。
+
 ## Next
 
 > M1 無法開始，直到下方「Blocked」的憑證由操作人提供，並完成 E1.0。
+>
+> **最優先的一步是申請憑證並跑 `npm run probe`**（審查 §7）。下方「審查修正」不需要憑證，可以平行進行，但不應該成為延後憑證的理由。
 
 - [ ] **E1.1 MINDS evidence**（P0，需 E0.3、E1.0）— Case ingestion、cohort。完成測試：歷史與 current 不混用；缺 107 成員名單時不能標為完成。
 - [ ] **E1.2 Control Paper round-trip**（P0，需 E0.2、E1.0）— Quote、risk、ledger。完成測試：真實 quote 證據；虛擬買賣守恆；沒有假 signature。
+
+### 審查修正 — 不需要憑證，可以立即進行
+
+依序執行。每一項是一個獨立的 PR，並在同一個 PR 內更新本檔與 PROJECT_STATUS。
+
+- [ ] **RV-01 Health 的新鮮度語意**（P0；R1、R2）— 心跳超過 `LIVENESS_THRESHOLD_MS` 的 `RUNNING` session 在 health 中標為過期（推導出來的狀態，不改寫 `run_sessions`）；`RESEARCH`／`PAPER` 模式下沒有新鮮的 worker 時，整體狀態不可為 `ok`。完成測試：心跳 10 分鐘前的 worker 使 health 降級並標出該 session；從未啟動 worker 時不是 `ok`；正常心跳不受影響。
+- [ ] **RV-02 Parser 單筆隔離**（P0；R3）— 單一 pair 不符合 `PairSnapshot` 時，該 pair 以 `SCHEMA_REJECTED` 進 quarantine，同一回應的其他 pair 照常產生事件；必然失敗的解析錯誤不重試 5 次。完成測試：`priceUsd` 為 `1e-120`、`1e+100`、97 位數的回應，正常的 pair 仍有事件；job 不進 `dead`。
+- [ ] **RV-03 來源狀態語意與四級整體狀態**（P0；R4、R8、D7）— **先以 Mode A 提出設計再實作**。`NOT_FOUND` 與 `CLIENT_ERROR`（包含 OKX envelope 錯誤）不可顯示為 `HEALTHY`；health 回應提供最近一次的 `error_class`；整體狀態分出「沒有憑證（需注意）」與「實際故障（異常／嚴重）」。若需要新的 `source_health.state`，以新的 migration 修改 CHECK。OKX `50101`／`50102` 的分類要等真實回應確認。完成測試：永遠回 404 的功能使整體狀態降級；只缺憑證時狀態與資料庫斷線不同。
+- [ ] **RV-04 資料庫逾時**（P0；R5）— Pool 設定 `connectionTimeoutMillis`、`keepAlive`，執行期連線設定 `statement_timeout`（migration 例外）；心跳本身有逾時，不會因為一次卡住就永久停止。完成測試：連到不可達位址在設定時間內失敗；超時的查詢被中止；心跳卡住後能恢復。
+- [ ] **RV-05 CI**（P0；需操作人同意使用 GitHub Actions 免費額度）— 每個 PR 跑 `npm ci`、typecheck、build、全部測試（PostgreSQL 17 service、Node 依 `.node-version`）。完成測試：故意弄壞一個測試時 CI 失敗；README 記錄 CI 與本機指令的對應。
 
 ### Blocked — needs the operator
 
@@ -50,9 +64,49 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] 對照各供應商的帳戶後台，確認額度的計費週期何時重置。目前假設是 UTC 曆月。
 - [ ] 量測 Helius 各端點實際扣的 credits，據以調整警告線與硬性上限。目前沿用 OKX 的 70%／85% 比例。
 - [ ] Helius JSON-RPC 的錯誤可能以 HTTP 200 加上 `error` 欄位回傳，目前會記成 `OK`。比照 OKX 加上 `readEnvelope`；M1 讀取鏈上資料前完成。
-- [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。目前相同 `dedupe_key` 的第二筆會被直接略過。
-- [ ] 欄位層級 quarantine 的持久化：隨第一個 parser（M1）加入資料表。
-- [ ] 本機資料庫的備份與還原（屬於 E4.2，在那之前 `pgdata` 是唯一的一份）。
+- [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。目前相同 `dedupe_key` 的第二筆會被直接略過。與 RV-06 一起處理。
+- [ ] 本機資料庫的備份與還原（屬於 E4.2，在那之前 `pgdata` 是唯一的一份）。審查建議提前，見 FT-06。
+
+### 審查發現 — M2 之前完成
+
+- [ ] **RV-06 矛盾資料可見**（P1；R6）— 相同 `dedupe_key`、不同 payload 時，記錄衝突（獨立的 append-only 表或 audit），不再靜默丟棄。完成測試：相同內容重送仍是 no-op；不同內容留下可查詢的衝突紀錄。
+- [ ] **RV-07 `confidence` 精度一致**（P1；R7）— 契約限制最多 6 位小數，與 `numeric(7,6)` 一致；目前沒有 producer，不需要轉換舊資料。完成測試：7 位小數在寫入前被拒絕。
+- [ ] **RV-08 Provider 層級退避**（P1；D1）— 帳號共用的限制（Jupiter、Helius 的 429）暫停整個供應商；方案或權限造成的錯誤仍以功能為單位。完成測試：一個 Jupiter 功能被 429 時，另一個 Jupiter 功能被 `SUPPRESSED`。
+- [ ] **RV-09 簽章時間與時鐘偏移**（P1；R9、D6）— OKX 在節流等待之後才簽章；記錄供應商回應 `Date` header 與本機時間的差，超過門檻時依藍圖 fail-safe 停止依賴新鮮度的工作。完成測試：等待期間時間前進時，簽章使用送出當下的時間；偏移超過門檻會反映在 health。
+- [ ] **RV-10 PR 範本與文件同步**（P1；審查 §9）— 新增 `.github/pull_request_template.md`：對應的任務 ID、是否更新 tasks.md／PROJECT_STATUS／架構文件、驗證指令輸出。
+- [ ] **RV-11 Lint 與 format**（P2）— 加入 Biome（單一 dev 相依），先只格式化，再逐步開規則；與 RV-05 一起在 CI 執行。
+- [ ] **RV-12 Worker 的兩條隊伍與租約續租**（P1；D2、D3）— 同一個 worker 程序內分成「供應商請求」與「本機運算（parse 等）」兩個迴圈，節流器仍只有一份；長時間的 job 定期續租。完成測試：慢速供應商不會延遲 parse job；長 job 不會被重新派發。
+- [ ] **RV-13 儲存策略**（P1；D4、D5）— 先量測（FT-07），再決定：quarantine 是否改為每個 observation 一筆彙總、或只記錄新出現的原因；raw payload 與事件的保留期限；`jobs`、`consumer_inbox` 的清理。決策寫成 ADR。完成測試：依決策的保留規則不會刪到 replay 需要的證據。
+- [ ] **RV-14 開發相依的弱點**（P2）— `source-map-js@1.2.1`（經 vite → postcss，只在建置時使用）升級到修正版，遵守 `.npmrc` 的 `min-release-age`。
+- [ ] **RV-15 API 請求日誌**（P2；U9）— Health 輪詢不要每次寫 2 行 info 日誌（開著分頁每天約 1.7 萬行）；錯誤與非 GET 請求照常記錄。
+
+### UI 改善
+
+依賴 RV-01／RV-03 提供的欄位。設計原則：這是操作工具，不是交易終端；視覺先回答「能不能相信這個畫面」，不做會誘發追高的動態效果（審查 §6）。
+
+- [ ] **UI-01 新鮮度與相對時間**（P1，需 RV-01；U1、U5）— 心跳、最近成功等改為「12 秒前」，完整時間放在 tooltip；過期的 session 顯示「疑似停止」；頁首顯示「上次更新」與更新指示點。
+- [ ] **UI-02 頁首狀態列**（P1，需 RV-03；U4）— 四級整體狀態與對應顏色；小指標：worker 心跳、健康來源數、最高額度使用率、dead job 數；分頁標題與 favicon 隨狀態變化。
+- [ ] **UI-03 資料來源表**（P1，需 RV-03；U2、U6）— 修正 1280 px 下的截斷；依供應商分組、問題排最前面、「只看異常」篩選；顯示錯誤類別與額度桶；退避中顯示剩餘時間。
+- [ ] **UI-04 額度視覺**（P2；U7）— 自繪進度條標出警告線、硬性上限與供應商上限，顏色與狀態一致；依本月燃燒率推估達到硬性上限的日期。
+- [ ] **UI-05 觀測覆蓋帶**（P1）— 近 24 小時與 7 天的時間軸，標出觀測中與缺口，附覆蓋率百分比。需要 API 提供時間範圍內的 session 與 gap。
+- [ ] **UI-06 窄螢幕版面**（P2；U3）— 640 px 以下表格改為卡片清單，狀態放在第一行。
+- [ ] **UI-07 輪詢穩健性**（P1；U8）— 請求逾時與取消、不重疊、分頁在背景時暫停、以 `HealthReport` schema 驗證回應以發現契約漂移。
+- [ ] **UI-08 無障礙**（P2）— 表格 caption、清楚的焦點樣式、`prefers-reduced-motion`、狀態不只靠顏色表達。
+- [ ] **UI-09 前端測試**（P2，需 RV-05）— 狀態判斷抽成純函式並以 `node:test` 測試；CI 加一個 Playwright 冒煙測試（亮色、深色、390 px）。
+- [ ] **UI-10 導覽骨架**（P2，需 FT-01 或 FT-02）— 第一個真正的頁面出現時再加分頁（系統／市場快照／證據／Paper／研究），不先做空分頁。
+
+### 功能建議
+
+都在 M0–M4 授權範圍內，不新增費用。
+
+- [ ] **FT-01 證據瀏覽器**（P1，E4.1 的前置）— 依 subject 查事件、raw observation 的中繼資料與本文、quarantine 清單。唯讀 API，維持 GET only。
+- [ ] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。
+- [ ] **FT-03 排程器**（P0，M2 的前置）— slot 化的 dedupe key（例如 `schedule:<名稱>:<slot>`）；停機後只跑最新的 slot，錯過的部分記成缺口，不一次補發。
+- [ ] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。
+- [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
+- [ ] **FT-06 備份與還原提前**（P1）— `pg_dump` 到資料目錄之外，並還原到獨立的測試資料庫驗證；不得覆蓋使用中的資料庫。
+- [ ] **FT-07 儲存量測**（P1，RV-13 的前置）— `morrow status` 顯示各資料表大小與每日成長。
+- [ ] **FT-08 決策日誌**（E3.1 的設計要求）— 每份 thesis 必須有機率、到期日、「什麼會證明我錯了」；到期自動產生 label，累積 Brier score。
 
 ### Not authorized
 
@@ -67,3 +121,6 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **E0.2 Event／DB／jobs** — Persistence、contracts。Transaction 回滾不留下孤兒 job；重送冪等。（2026-10-05）
 - [x] **E0.3 Provider capability／budget** — Adapters、source health。429／402、quota、raw unit ambiguity 都正確降級。實際權限資料待 E1.0。（2026-10-05）
 - [x] `dev-env.ps1` 檢查 Node 版本：PATH 上的 Node 不符 `engines` 時改用 toolchain 的 Node，不需要升級其他專案共用的系統 Node。（2026-10-05）
+- [x] DEX Screener `tokens/v1` parser（`dexscreener-tokens@1`）與 `PairSnapshot` 契約：數字保留來源的完整位數，單位未確認的欄位進 quarantine。（PR #5，事後補記於 2026-10-13：合併時沒有列在看板上）
+- [x] 欄位層級 quarantine 的持久化：migration `0002_parse_quarantine`，隨第一個 parser 加入。（PR #5）
+- [x] 專案審查：架構、測試、UI、功能建議，結論見 [docs/reviews/2026-10-13-project-review.md](docs/reviews/2026-10-13-project-review.md)；可派工的項目已列入上方 `RV-`／`UI-`／`FT-`。（2026-10-13）
