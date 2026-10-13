@@ -154,7 +154,7 @@ At the start of every task:
 - If starting from product baseline, switch to `main`, fetch, and fast-forward from `origin/main` before creating a new branch
 - If already on a feature branch, confirm it is the intended branch for this task
 
-Before opening or updating a PR:
+Before opening or updating a PR (`.github/pull_request_template.md` lists what the PR must state and which documents it must update):
 - Fetch and fast-forward local `main` from `origin/main`
 - Branch from current `main`, not from an older local checkout
 - Before pushing, check the branch against `origin/main` again — if `main` moved, rebase first
