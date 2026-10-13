@@ -144,5 +144,7 @@ Worker 需要能直接連到：
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |
+| `Cannot reach the database (connection timed out)` | 連線 10 秒內沒有建立：PostgreSQL 卡住、機器剛從休眠恢復，或連到了錯的位址 |
+| 日誌出現 `canceling statement due to statement timeout` | 某個語句超過 30 秒（或心跳超過 5 秒），通常是在等 lock。看看是否有其他連線開著很久的 transaction |
 | `node` 或 `psql` 找不到 | 這個視窗還沒執行 `. .\scripts\dev-env.ps1` |
 | `npm ci` 回報 `EBADENGINE` | PATH 上的 Node 版本不符。執行 `.\scripts\setup-toolchain.ps1`，再 `. .\scripts\dev-env.ps1` |

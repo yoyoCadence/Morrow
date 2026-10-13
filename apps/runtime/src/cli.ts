@@ -4,7 +4,7 @@ import { buildHealthReport } from './api/health.js';
 import { SchemaNotCurrentError, startApiProcess, startWorkerProcess, type RunningProcess } from './app/processes.js';
 import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { migrate, MigrationError } from './db/migrate.js';
-import { createPool } from './db/pool.js';
+import { createPool, isConnectionTimeout, type PoolOptions } from './db/pool.js';
 import { enqueueJob, getJobState } from './jobs/job-queue.js';
 import { sleep } from './jobs/worker.js';
 import { createLogger } from './logging/logger.js';
@@ -29,8 +29,13 @@ function print(text: string): void {
   process.stdout.write(`${text}\n`);
 }
 
-async function withPool<T>(config: AppConfig, name: string, work: (pool: pg.Pool) => Promise<T>): Promise<T> {
-  const pool = createPool(config.databaseUrl, { applicationName: `morrow-${name}` });
+async function withPool<T>(
+  config: AppConfig,
+  name: string,
+  work: (pool: pg.Pool) => Promise<T>,
+  options: Pick<PoolOptions, 'statementTimeoutMs'> = {},
+): Promise<T> {
+  const pool = createPool(config.databaseUrl, { applicationName: `morrow-${name}`, ...options });
   try {
     return await work(pool);
   } finally {
@@ -61,6 +66,7 @@ async function runDaemon(
 }
 
 async function commandMigrate(config: AppConfig): Promise<number> {
+  // A migration may legitimately run long or wait for a lock, so it has no statement timeout.
   return withPool(config, 'migrate', async (pool) => {
     const result = await migrate(pool);
     if (result.applied.length === 0) {
@@ -71,7 +77,7 @@ async function commandMigrate(config: AppConfig): Promise<number> {
       }
     }
     return 0;
-  });
+  }, { statementTimeoutMs: 0 });
 }
 
 async function commandStop(config: AppConfig, target: string | undefined): Promise<number> {
@@ -196,9 +202,15 @@ main(process.argv.slice(2)).then(
       if (error instanceof MigrationError && error.cause instanceof Error) {
         process.stderr.write(`Cause: ${error.cause.message}\n`);
       }
-    } else if (code === 'ECONNREFUSED' || code === 'ENOTFOUND' || code === 'ETIMEDOUT' || code === 'ECONNRESET') {
+    } else if (
+      code === 'ECONNREFUSED' ||
+      code === 'ENOTFOUND' ||
+      code === 'ETIMEDOUT' ||
+      code === 'ECONNRESET' ||
+      isConnectionTimeout(error)
+    ) {
       process.stderr.write(
-        `Cannot reach the database (${code}). Is PostgreSQL running? For the local cluster: .\\scripts\\pg-local.ps1 start\n`,
+        `Cannot reach the database (${code ?? 'connection timed out'}). Is PostgreSQL running? For the local cluster: .\\scripts\\pg-local.ps1 start\n`,
       );
     } else if (code === 'EADDRINUSE') {
       process.stderr.write('The API port is already in use. Stop the other process or set MORROW_API_PORT.\n');

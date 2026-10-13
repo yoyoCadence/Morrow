@@ -10,7 +10,7 @@ import {
 } from '@morrow/core';
 import type pg from 'pg';
 import { getMigrationStatus, MigrationError } from '../db/migrate.js';
-import { pgErrorCode } from '../db/pool.js';
+import { isConnectionTimeout, isQueryReadTimeout, pgErrorCode } from '../db/pool.js';
 import { countJobs } from '../jobs/job-queue.js';
 import type { Logger } from '../logging/logger.js';
 import { listSourceHealth } from '../providers/source-health.js';
@@ -165,6 +165,8 @@ async function recentGaps(pool: pg.Pool): Promise<SessionGapView[]> {
 function errorLabel(error: unknown): string {
   const code = pgErrorCode(error);
   if (code) return code;
+  if (isConnectionTimeout(error)) return 'connection timed out';
+  if (isQueryReadTimeout(error)) return 'no answer in time';
   return error instanceof Error ? error.name : 'unknown error';
 }
 
