@@ -132,6 +132,9 @@ test('the health view reports each configured bucket for the current period', as
       ['helius', 'credits', 0, 'OK'],
     ],
   );
+  // The provider's own limit is reported too; the local thresholds sit below it.
+  for (const view of views) assert.ok(view.warn_at < view.hard_stop_at && view.hard_stop_at < view.source_limit, view.bucket);
+  assert.equal(views[0]?.source_limit, 100_000);
 
   await reserveQuota(db.pool, okx, { capability: 'x', reason: 'scheduled', units: 15_000, at });
   const basic = (await getQuotaViews(db.pool, at)).find((view) => view.bucket === 'basic');

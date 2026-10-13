@@ -162,6 +162,7 @@ export async function getQuotaViews(db: Queryable, now: Date): Promise<QuotaView
       used,
       warn_at: policy.warnAt,
       hard_stop_at: policy.hardStopAt,
+      source_limit: policy.sourceLimit,
       state,
     };
   });

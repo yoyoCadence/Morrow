@@ -351,9 +351,46 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
-meter {
-  width: 120px;
-  vertical-align: middle;
+/* Quota: used against the provider's limit, with the warning line and the hard stop marked. */
+.quota-used {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quota-bar {
+  width: 140px;
+  height: 14px;
+  flex: none;
+}
+
+.quota-track {
+  fill: var(--neutral-bg);
+}
+
+.quota-good .quota-fill {
+  fill: var(--good);
+}
+
+.quota-warn .quota-fill {
+  fill: var(--warn);
+}
+
+.quota-bad .quota-fill {
+  fill: var(--bad);
+}
+
+.quota-mark-warn,
+.quota-mark-hard {
+  stroke-width: 2px;
+}
+
+.quota-mark-warn {
+  stroke: var(--warn);
+}
+
+.quota-mark-hard {
+  stroke: var(--bad);
 }
 
 /* Data sources: grouped by provider, problems first. */
