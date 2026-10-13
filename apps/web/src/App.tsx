@@ -1,12 +1,12 @@
 import type { CoverageReport, HealthReport } from '@morrow/core';
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { COVERAGE_REASON_LABELS, coverageKind, coveragePercent, formatSpan, gapTotals } from './coverage';
-import { describeProjection, projectHardStop } from './quota';
-import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources';
-import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status';
-import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
-import { useCoverage } from './useCoverage';
-import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth';
+import { COVERAGE_REASON_LABELS, coverageKind, coveragePercent, formatSpan, gapTotals } from './coverage.js';
+import { describeProjection, projectHardStop } from './quota.js';
+import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources.js';
+import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status.js';
+import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time.js';
+import { useCoverage } from './useCoverage.js';
+import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth.js';
 
 const wholeNumber = new Intl.NumberFormat('zh-TW');
 

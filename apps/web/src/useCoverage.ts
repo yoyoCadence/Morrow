@@ -1,6 +1,6 @@
 import { CoverageReport } from '@morrow/core';
 import { useEffect, useState } from 'react';
-import { fetchChecked, startPolling } from './poll';
+import { fetchChecked, startPolling } from './poll.js';
 
 /** Coverage changes slowly; once a minute is enough, and every five while the tab is hidden. */
 const COVERAGE_REFRESH_MS = 60_000;

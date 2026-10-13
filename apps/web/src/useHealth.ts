@@ -1,6 +1,6 @@
 import { HealthReport } from '@morrow/core';
 import { useEffect, useState } from 'react';
-import { FetchError, fetchChecked, startPolling, type FetchProblem } from './poll';
+import { FetchError, fetchChecked, startPolling, type FetchProblem } from './poll.js';
 
 export const REFRESH_MS = 10_000;
 /** In a background tab: slower, but the tab title and icon keep reporting the state. */

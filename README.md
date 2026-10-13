@@ -66,6 +66,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | `npm run format` | 以 Biome 格式化（尚未強制，見 tasks.md 的 RV-11b） |
 | `npm test` | 全部測試（需要測試資料庫） |
 | `npm run test:unit` | 不需要資料庫的測試 |
+| `npm run test:e2e` | 儀表板冒煙測試：在 Chromium 中開啟建置好的儀表板（需要測試資料庫，以及 `npx playwright install --only-shell chromium` 或 `MORROW_E2E_CHROMIUM`） |
 | `npm run migrate` | 套用尚未執行的 migration |
 | `npm run api` / `npm run worker` | 啟動 API／worker |
 | `npm run stop [-- api\|worker]` | 請執行中的程序乾淨停止 |
@@ -85,6 +86,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | Lint | `npm run lint`（Biome，recommended 規則） |
 | 建置 | `npm run build` |
 | 全部測試 | `npm test`（CI 使用 PostgreSQL 17 的 service container） |
+| 儀表板冒煙測試 | `npx playwright install --with-deps --only-shell chromium`，再 `npm run test:e2e` |
 | Migration 冒煙測試 | `npm run migrate` 兩次，第二次必須回報已是最新 |
 
 CI 不使用任何 secret：測試從不連到真實供應商，資料庫是用完即丟的容器。Actions 以 commit SHA 釘住版本。CI 只在 Linux 上執行，`scripts/` 的 PowerShell 腳本不在 CI 涵蓋範圍內。
@@ -98,6 +100,7 @@ CI 不使用任何 secret：測試從不連到真實供應商，資料庫是用�
 | `MORROW_MODE` | `OFF` | `OFF`、`RESEARCH` 或 `PAPER`。`OFF` 不會連線到資料供應商 |
 | `MORROW_DATABASE_URL` | 必填 | 本機 PostgreSQL |
 | `MORROW_TEST_DATABASE_URL` | — | 只給 `npm test` 用，資料庫名稱必須以 `_test` 結尾 |
+| `MORROW_E2E_CHROMIUM` | — | 只給 `npm run test:e2e` 用：已安裝的 Chromium 或 Chrome 執行檔，取代 Playwright 下載的版本 |
 | `MORROW_API_PORT` | `8787` | API 連接埠，位址固定為 `127.0.0.1` |
 | `MORROW_LOG_LEVEL` | `info` | |
 | `MORROW_JUPITER_API_KEY` | — | Jupiter 免費金鑰 |

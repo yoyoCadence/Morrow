@@ -21,10 +21,10 @@ export function coverageKind(reason: CoverageGapReason | null): CoverageKind {
   return reason === 'OFFLINE' || reason === 'MODE_OFF' ? 'stopped' : 'abnormal';
 }
 
-/** "92.3%": rounded down, so a window with any gap never shows 100%. */
+/** "92.3%": rounded down, so a window with any gap never shows 100%. Multiplied before dividing, so an exact share stays exact. */
 export function coveragePercent(report: CoverageReport): string {
   if (report.window_ms <= 0) return '—';
-  return `${(Math.floor((report.observed_ms / report.window_ms) * 1000) / 10).toFixed(1)}%`;
+  return `${(Math.floor((report.observed_ms * 1000) / report.window_ms) / 10).toFixed(1)}%`;
 }
 
 /** Total time per reason the worker was not observing, longest first. */

@@ -1,5 +1,6 @@
 import type { HealthReport } from '@morrow/core';
-import type { Tone } from './status';
+import { usedPercent } from './quota.js';
+import type { Tone } from './status.js';
 
 type Source = HealthReport['sources'][number];
 
@@ -82,5 +83,5 @@ export function bucketUsage(source: Source, quota: HealthReport['quota']): strin
   if (source.quota_bucket === null) return '—';
   const bucket = quota.find((entry) => entry.provider === source.provider && entry.bucket === source.quota_bucket);
   if (!bucket || bucket.hard_stop_at <= 0) return source.quota_bucket;
-  return `${source.quota_bucket} · ${Math.floor((bucket.used / bucket.hard_stop_at) * 100)}%`;
+  return `${source.quota_bucket} · ${usedPercent(bucket.used, bucket.hard_stop_at)}%`;
 }

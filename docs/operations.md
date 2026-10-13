@@ -163,6 +163,7 @@ Worker 需要能直接連到：
 | 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`。一直出現時，通常是端點或參數有誤 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
+| `npm run test:e2e`：`Executable doesn't exist at …` | 這台機器沒有 Playwright 對應版本的 Chromium。執行 `npx playwright install --only-shell chromium`（會下載約 100 MB），或在 `.env` 設定 `MORROW_E2E_CHROMIUM` 為已安裝的 Chrome 執行檔 |
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |
 | `Cannot reach the database (connection timed out)` | 連線 10 秒內沒有建立：PostgreSQL 卡住、機器剛從休眠恢復，或連到了錯的位址 |
 | 日誌出現 `canceling statement due to statement timeout` | 某個語句超過 30 秒（或心跳超過 5 秒），通常是在等 lock。看看是否有其他連線開著很久的 transaction |
