@@ -39,6 +39,7 @@
 | `npm run typecheck`（core、runtime、web） | 通過 |
 | `npm run build`（`tsc -b` 與 `vite build`） | 通過 |
 | 全新 clone 後 `npm ci`、`npm run build`、`npm run test:unit` | 通過（見 PR 說明） |
+| CI（2026-10-13 起，RV-05） | 每個 PR 與 `main` 自動執行 typecheck、build、全部測試（PostgreSQL 17）與 migration 冒煙測試 |
 
 ### Automated
 
@@ -54,6 +55,7 @@
 | RV-02 Parser 單筆隔離 | 契約無法表示的數值（例如 `1e-120`、`1e+100`、97 位數）在欄位層級成為 `UNKNOWN (NOT_REPRESENTABLE)` 並保存原文；仍不符合契約的 pair 以 `SCHEMA_REJECTED` 進 quarantine；parser 升版為 `dexscreener-tokens@2` | 新增 3 個測試：兩個 pair 的回應產生 2 個事件，正常的 pair 與單獨解析時完全相同；ingest 不丟錯 |
 | RV-03 來源狀態與四級整體狀態 | 新的來源狀態 `REQUEST_REJECTED`（migration `0003`）；health 為 `ok`／`attention`／`degraded`／`critical`，並列出每一個原因（`findings`）；來源檢視顯示錯誤類別（例如 `OKX_CODE_51000`）；dashboard 頁首列出原因 | 新增 2 個 DB 測試（嚴重度與錯誤類別、`0003` 的資料轉換），更新 3 個；截圖確認亮色與深色 |
 | RV-04 資料庫逾時 | 連線、語句、等待回應、閒置 transaction 都有上限，心跳另有 5 秒上限；`migrate` 不設語句上限；狀態不明的連線被銷毀 | 新增 7 個測試（含一個只接受連線、從不回應的假伺服器）；審查時連到黑洞位址會無限期等待，現在 10 秒後回報 `connection timed out` |
+| RV-05 CI | GitHub Actions：ubuntu-24.04、Node 24.19.0、PostgreSQL 17.11 service container；typecheck、build、全部測試、migration 冒煙測試；actions 以 commit 釘住，不使用 secret | 同一個 PR 先推一個故意失敗的測試：[run 38411115251](https://github.com/yoyoCadence/Morrow/actions/runs/38411115251) 為 185 個測試中 1 個失敗（只有該測試），job 失敗；移除後重跑為綠。這也是第一次在 PostgreSQL 17 以外的機器上跑完整測試 |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
