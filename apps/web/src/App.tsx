@@ -574,7 +574,10 @@ export function App() {
       {health.kind === 'loading' ? <p className="empty">讀取中…</p> : null}
       {health.kind === 'unreachable' ? (
         <p className="alert" role="alert">
-          無法連線到本機 API（{health.message}）。{report ? '以下是最後一次取得的狀態，可能已過期。' : '請確認 API 已啟動：npm run api'}
+          {health.problem === 'contract'
+            ? `儀表板與 API 不是同一個版本（${health.message}）。重新建置（npm run build）並重新啟動 API，再重新整理這個頁面。`
+            : `無法取得本機 API 的狀態（${health.message}）。`}
+          {report ? '以下是最後一次取得的狀態，可能已過期。' : health.problem === 'contract' ? '' : '請確認 API 已啟動：npm run api'}
         </p>
       ) : null}
       {received ? (

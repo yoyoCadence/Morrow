@@ -91,10 +91,14 @@ export function indicators(report: HealthReport, now: number): Indicator[] {
 /** What the page knows right now: still loading, the API not answering, or a current report's status. */
 export type PageState = 'loading' | 'unreachable' | HealthReport['status'];
 
-/** Browser tab title: the state first, so it can be read from a narrow tab. */
+/**
+ * Browser tab title: the state first, so it can be read from a narrow tab.
+ * Without a usable answer (no connection, no answer in time, or one that
+ * does not match the contract) it says the page cannot update.
+ */
 export function pageTitle(state: PageState): string {
   if (state === 'loading') return 'Morrow';
-  return `${state === 'unreachable' ? '連線中斷' : LEVELS[state].label} · Morrow`;
+  return `${state === 'unreachable' ? '無法更新' : LEVELS[state].label} · Morrow`;
 }
 
 /** Favicon file in `public/`. Static files, because the API's CSP allows no `data:` URLs. */
