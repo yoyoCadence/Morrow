@@ -35,7 +35,11 @@ export async function fetchChecked<T>(url: string, schema: Schema<T>, timeoutMs:
   let body: unknown;
   try {
     body = await response.json();
-  } catch {
+  } catch (error) {
+    // The body can still be arriving when the deadline passes or the page goes
+    // away; that is a timeout or a cancellation, not a body in the wrong shape.
+    if (timeout.aborted) throw new FetchError('timeout', `${timeoutMs / 1000} 秒內沒有收完回應`);
+    if (signal.aborted) throw new FetchError('network', error instanceof Error ? error.message : String(error));
     throw new FetchError('contract', '回應不是 JSON');
   }
   const parsed = schema.safeParse(body);
