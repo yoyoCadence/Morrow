@@ -1,4 +1,5 @@
 import type { HealthReport } from '@morrow/core';
+import { sourceTone } from './sources';
 import { formatRelative } from './time';
 
 export type Tone = 'good' | 'warn' | 'bad' | 'critical' | 'neutral';
@@ -16,8 +17,6 @@ export interface Indicator {
   readonly tone: Tone;
   readonly text: string;
 }
-
-const BAD_SOURCE_STATES: ReadonlySet<string> = new Set(['DOWN', 'UNAUTHORIZED', 'PAYMENT_REQUIRED']);
 
 function workerIndicator(report: HealthReport, now: number): Indicator {
   const worker = report.sessions.find((session) => session.component === 'worker');
@@ -40,7 +39,7 @@ function sourcesIndicator(report: HealthReport): Indicator {
   const sharedLimits = report.sources
     .filter((source) => source.capability === '*' && source.state !== 'HEALTHY')
     .map((source) => source.provider);
-  const tone: Tone = sources.some((source) => BAD_SOURCE_STATES.has(source.state))
+  const tone: Tone = sources.some((source) => sourceTone(source.state) === 'bad')
     ? 'bad'
     : healthy < sources.length || sharedLimits.length > 0
       ? 'warn'

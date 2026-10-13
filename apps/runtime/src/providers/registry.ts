@@ -285,3 +285,12 @@ export const CAPABILITIES: readonly CapabilityDefinition[] = [
       ' Standard RPC calls cost 1 credit.',
   },
 ];
+
+/**
+ * The quota bucket a capability draws from, or null when it has none. Also
+ * null for a capability no longer in the registry and for the provider-wide
+ * `*` row, which is not a capability.
+ */
+export function quotaBucketOf(provider: string, capability: string): string | null {
+  return CAPABILITIES.find((entry) => entry.provider === provider && entry.capability === capability)?.quotaBucket ?? null;
+}

@@ -61,6 +61,13 @@ export const SourceHealthView = z.strictObject({
    * example `OKX_CODE_50113`; null when there is none or no request was sent.
    */
   last_error_class: z.string().nullable(),
+  /**
+   * The monthly quota bucket this capability's requests count against, as
+   * the provider registry defines it (match it to `QuotaView.bucket` of the
+   * same provider). Null when the capability has no monthly allowance, and
+   * for a provider-wide row (`capability` is `*`).
+   */
+  quota_bucket: z.string().nullable(),
   updated_at: UtcTimestamp,
 });
 export type SourceHealthView = z.infer<typeof SourceHealthView>;

@@ -1,6 +1,7 @@
 import type { RequestOutcome, SourceHealthView, SourceState } from '@morrow/core';
 import type { Queryable } from '../db/pool.js';
 import type { RequestReason } from '../db/raw-store.js';
+import { quotaBucketOf } from './registry.js';
 
 /**
  * The capability name under which a provider-wide rate limit is recorded, for
@@ -211,6 +212,7 @@ export async function listSourceHealth(db: Queryable): Promise<SourceHealthView[
     last_success_at: row.last_success_at?.toISOString() ?? null,
     last_failure_at: row.last_failure_at?.toISOString() ?? null,
     last_error_class: row.error_class,
+    quota_bucket: quotaBucketOf(row.provider, row.capability),
     updated_at: row.updated_at.toISOString(),
   }));
 }

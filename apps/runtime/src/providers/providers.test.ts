@@ -6,7 +6,7 @@ import { classifyFetchError, classifyStatus, clockOffsetMs, parseRetryAfterMs, p
 import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
-import { CAPABILITIES, PROVIDERS } from './registry.js';
+import { CAPABILITIES, PROVIDERS, quotaBucketOf } from './registry.js';
 import { nextHealth, shouldSuppress, type SourceHealth } from './source-health.js';
 import { pathWithQuery, publicUrl, type RequestSpec } from './types.js';
 
@@ -371,4 +371,12 @@ test('outcomes where nothing was sent leave health untouched', () => {
     assert.equal(nextHealth(null, { outcome, httpStatus: null, retryAfterMs: null }, NOW), null, outcome);
   }
   assert.equal(shouldSuppress(null, 'scheduled', NOW), false, 'a never-seen source is tried');
+});
+
+test('the quota bucket of a source row comes from the registry, and is null where there is none', () => {
+  assert.equal(quotaBucketOf('okx', 'market.trades'), 'basic');
+  assert.equal(quotaBucketOf('okx', 'token.holders'), 'premium');
+  assert.equal(quotaBucketOf('jupiter', 'tokens.recent'), null, 'no monthly allowance');
+  assert.equal(quotaBucketOf('jupiter', '*'), null, 'a provider-wide row is not a capability');
+  assert.equal(quotaBucketOf('okx', 'no.such.capability'), null);
 });

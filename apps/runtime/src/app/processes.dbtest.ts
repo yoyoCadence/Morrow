@@ -289,6 +289,7 @@ test('missing credentials need attention, an outage is degraded, and the worst f
   current = await report();
   assert.equal(current.status, 'attention', 'one rejected request may be about that request');
   assert.equal(current.sources.find((source) => source.capability === 'market.trades')?.last_error_class, 'OKX_CODE_51000');
+  assert.equal(current.sources.find((source) => source.capability === 'market.trades')?.quota_bucket, 'basic');
   assert.match(current.findings.find((finding) => finding.code === 'SOURCE_REQUEST_REJECTED')?.detail ?? '', /OKX_CODE_51000/);
 
   await setSource('market.trades', 'REQUEST_REJECTED', 'CLIENT_ERROR', 3);
