@@ -155,6 +155,7 @@ Worker 需要能直接連到：
 | `The database has N pending migration(s)` | 執行 `npm run migrate` |
 | `A worker session is already running` | 已經有一份在執行；用 `npm run stop -- worker` 停止 |
 | `npm run stop` 回報 `worker: not running. No heartbeat for ...` | 該程序已經當掉或被強制結束，沒有程序可以停止。下次啟動時會記錄一筆 `UNCLEAN_SHUTDOWN` 缺口 |
+| 頁首提示「儀表板與 API 不是同一個版本」 | API 的回應不符合這個儀表板的契約，訊息會指出第一個不符的欄位。通常是更新程式碼後只重建了其中一邊，或 API 沒有重新啟動。執行 `npm run build`，重新啟動 API，再重新整理頁面 |
 | 頁首顯示「無法更新 · 上次成功 …」，畫面變灰 | 儀表板連不到本機 API：API 程序停止、當掉，或機器剛從休眠恢復。畫面是最後一次取得的狀態，不是現在的狀態。啟動 API：`npm run api`。頁首圓點：綠色表示最近有更新，黃色表示晚了一兩次，紅色表示已過期或連不上 |
 | Dashboard 顯示「心跳中斷」 | 該程序超過 30 秒沒有心跳：當掉、被終止、凍結或機器休眠。重新啟動它 |
 | 「本機時鐘與供應商的時間不一致」 | 本機時鐘與供應商回應的 `Date` 差了超過 5 秒（超過 30 秒為異常）。讓系統校時（Windows：設定 → 時間與語言 → 立即同步）。偏移過大時，OKX 的簽章請求會被拒絕 |
