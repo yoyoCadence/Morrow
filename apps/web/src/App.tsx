@@ -68,16 +68,38 @@ const taipeiShort = new Intl.DateTimeFormat('zh-TW', {
   hour12: false,
 });
 
+/** A gap is drawn at least this wide (of 1000 units, so 0.3%): a short crash in a week must stay visible. */
+const MIN_GAP_UNITS = 3;
+
 /**
  * One window as a strip: observing, gaps nobody chose, stopped on purpose,
- * and no record, each segment with its times as a tooltip. A gap is drawn at
- * least 0.1% wide so a short crash in a week stays visible.
+ * and no record, each segment with its times as a tooltip. Every segment is
+ * drawn at its true width first; gaps narrower than MIN_GAP_UNITS are then
+ * drawn again on top at that width, kept inside the strip, so a neighbour
+ * painted later cannot cover them.
  */
 function CoverageBand({ title, report }: { title: string; report: CoverageReport }) {
   const from = Date.parse(report.from);
   const span = Math.max(report.window_ms, 1);
   const gaps = gapTotals(report);
   const percent = coveragePercent(report);
+  const placed = report.segments.map((segment) => {
+    const start = Date.parse(segment.start);
+    const end = Date.parse(segment.end);
+    return {
+      segment,
+      x: ((start - from) / span) * 1000,
+      width: ((end - start) / span) * 1000,
+      label: `${taipeiShort.format(start)} – ${taipeiShort.format(end)}：${
+        segment.reason === null ? '觀測中' : COVERAGE_REASON_LABELS[segment.reason]
+      }`,
+    };
+  });
+  const rect = (key: string, item: (typeof placed)[number], x: number, width: number) => (
+    <rect key={key} className={`cov-${coverageKind(item.segment.reason)}`} x={x} y={0} width={width} height={14}>
+      <title>{item.label}</title>
+    </rect>
+  );
   return (
     <div className="coverage">
       <p className="coverage-head">
@@ -91,26 +113,10 @@ function CoverageBand({ title, report }: { title: string; report: CoverageReport
       </p>
       <svg className="coverage-band" viewBox="0 0 1000 14" preserveAspectRatio="none" role="img" aria-label={`${title}觀測 ${percent}`}>
         <title>{`${title}觀測 ${percent}`}</title>
-        {report.segments.map((segment) => {
-          const start = Date.parse(segment.start);
-          const width = ((Date.parse(segment.end) - start) / span) * 1000;
-          return (
-            <rect
-              key={segment.start}
-              className={`cov-${coverageKind(segment.reason)}`}
-              x={((start - from) / span) * 1000}
-              y={0}
-              width={segment.observing ? width : Math.max(width, 1)}
-              height={14}
-            >
-              <title>
-                {`${taipeiShort.format(start)} – ${taipeiShort.format(Date.parse(segment.end))}：${
-                  segment.reason === null ? '觀測中' : COVERAGE_REASON_LABELS[segment.reason]
-                }`}
-              </title>
-            </rect>
-          );
-        })}
+        {placed.map((item) => rect(item.segment.start, item, item.x, item.width))}
+        {placed
+          .filter((item) => !item.segment.observing && item.width < MIN_GAP_UNITS)
+          .map((item) => rect(`${item.segment.start}:min`, item, Math.min(item.x, 1000 - MIN_GAP_UNITS), MIN_GAP_UNITS))}
       </svg>
       <div className="coverage-axis">
         <span>{taipeiShort.format(from)}</span>
