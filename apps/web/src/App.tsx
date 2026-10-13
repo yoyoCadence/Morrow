@@ -1,9 +1,11 @@
-import type { HealthReport } from '@morrow/core';
+import type { CoverageReport, HealthReport } from '@morrow/core';
 import { useEffect, useState, type ReactNode } from 'react';
+import { COVERAGE_REASON_LABELS, coverageKind, coveragePercent, formatSpan, gapTotals } from './coverage';
 import { describeProjection, projectHardStop } from './quota';
 import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources';
 import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status';
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
+import { useCoverage } from './useCoverage';
 import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth';
 
 const wholeNumber = new Intl.NumberFormat('zh-TW');
@@ -55,6 +57,107 @@ function SessionBadge({ session }: { session: HealthReport['sessions'][number] }
 /** A backoff that has already ended is no longer worth showing. */
 function stillBlocked(blockedUntil: string | null, now: number): boolean {
   return blockedUntil !== null && Date.parse(blockedUntil) > now;
+}
+
+const taipeiShort = new Intl.DateTimeFormat('zh-TW', {
+  timeZone: 'Asia/Taipei',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+});
+
+/**
+ * One window as a strip: observing, gaps nobody chose, stopped on purpose,
+ * and no record, each segment with its times as a tooltip. A gap is drawn at
+ * least 0.1% wide so a short crash in a week stays visible.
+ */
+function CoverageBand({ title, report }: { title: string; report: CoverageReport }) {
+  const from = Date.parse(report.from);
+  const span = Math.max(report.window_ms, 1);
+  const gaps = gapTotals(report);
+  const percent = coveragePercent(report);
+  return (
+    <div className="coverage">
+      <p className="coverage-head">
+        <strong>{title}</strong>
+        <span>觀測 {percent}</span>
+        <span className="coverage-gaps">
+          {gaps.length === 0
+            ? '全程觀測'
+            : `未觀測：${gaps.map((gap) => `${COVERAGE_REASON_LABELS[gap.reason]} ${formatSpan(gap.ms)}`).join('、')}`}
+        </span>
+      </p>
+      <svg className="coverage-band" viewBox="0 0 1000 14" preserveAspectRatio="none" role="img" aria-label={`${title}觀測 ${percent}`}>
+        <title>{`${title}觀測 ${percent}`}</title>
+        {report.segments.map((segment) => {
+          const start = Date.parse(segment.start);
+          const width = ((Date.parse(segment.end) - start) / span) * 1000;
+          return (
+            <rect
+              key={segment.start}
+              className={`cov-${coverageKind(segment.reason)}`}
+              x={((start - from) / span) * 1000}
+              y={0}
+              width={segment.observing ? width : Math.max(width, 1)}
+              height={14}
+            >
+              <title>
+                {`${taipeiShort.format(start)} – ${taipeiShort.format(Date.parse(segment.end))}：${
+                  segment.reason === null ? '觀測中' : COVERAGE_REASON_LABELS[segment.reason]
+                }`}
+              </title>
+            </rect>
+          );
+        })}
+      </svg>
+      <div className="coverage-axis">
+        <span>{taipeiShort.format(from)}</span>
+        <span>現在</span>
+      </div>
+    </div>
+  );
+}
+
+/** When the worker was observing over the last day and week. Polled on its own, once a minute. */
+function CoverageSection() {
+  const coverage = useCoverage();
+  return (
+    <Section
+      title="觀測覆蓋"
+      hint="worker 在 RESEARCH 或 PAPER 模式下、有心跳的時間。沒有觀測的時段沒有資料，不代表沒有事件發生。"
+    >
+      {coverage.kind === 'loading' ? (
+        <p className="empty">讀取中…</p>
+      ) : coverage.kind === 'unavailable' ? (
+        <p className="problem">無法取得覆蓋資料（{coverage.message}）。</p>
+      ) : (
+        <>
+          <CoverageBand title="近 24 小時" report={coverage.day} />
+          <CoverageBand title="近 7 天" report={coverage.week} />
+          <ul className="coverage-legend">
+            <li>
+              <span className="swatch cov-observing" aria-hidden="true" />
+              觀測中
+            </li>
+            <li>
+              <span className="swatch cov-abnormal" aria-hidden="true" />
+              非預期中斷（異常中止、休眠或凍結、心跳中斷）
+            </li>
+            <li>
+              <span className="swatch cov-stopped" aria-hidden="true" />
+              停止或 OFF 模式
+            </li>
+            <li>
+              <span className="swatch cov-unknown" aria-hidden="true" />
+              沒有紀錄
+            </li>
+          </ul>
+        </>
+      )}
+    </Section>
+  );
 }
 
 const QUOTA_TONE: Record<HealthReport['quota'][number]['state'], Tone> = { OK: 'good', WARN: 'warn', HARD_STOP: 'bad' };
@@ -329,6 +432,8 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
           </table>
         )}
       </Section>
+
+      <CoverageSection />
 
       <Section title="觀測缺口" hint="這些時段系統沒有在觀測。缺口內沒有資料，不代表沒有事件發生。">
         {report.recent_gaps.length === 0 ? (

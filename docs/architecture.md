@@ -9,7 +9,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 ```text
                    ┌────────────────────────── apps/runtime ──────────────────────────┐
   瀏覽器 ── HTTP ──▶ API 程序（127.0.0.1）                                             │
-  （本機）          │   GET /api/health、靜態 dashboard                                │
+  （本機）          │   GET /api/health、/api/coverage、靜態 dashboard                 │
                    │                                                                  │
   資料供應商 ◀─────── Worker 程序                                                      │
                    │   job loop → ProviderClient → 額度／節流／存證                    │
@@ -167,6 +167,8 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
 Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一直是 `RUNNING`，直到該元件下一次啟動。所以 health 以資料庫時鐘計算心跳的年齡，超過 30 秒就把該 session 標為 `STALE`（推導出來的狀態，不改寫紀錄），整體狀態降級；`RESEARCH`／`PAPER` 模式下沒有 `LIVE` 的 worker，也會降級。
 
+觀測覆蓋（`GET /api/coverage?hours=24|168`，`api/coverage.ts`）把這些紀錄換算成時間軸：worker 在 `RESEARCH`／`PAPER` 模式下、有心跳的時間算觀測中，其餘每一段都有原因（上表三種，加上 `HEARTBEAT_LOST`：仍標為 `RUNNING` 但已沒有心跳、下一次啟動前尚未記錄的那段；`MODE_OFF`；`NO_RECORD`：什麼紀錄都沒有，例如第一次啟動之前）。重新啟動時，缺口的結束時間與新 session 的開始時間來自兩次讀取時鐘，中間會差幾毫秒；短於 1 秒且沒有紀錄的縫隙併入前一段，不算缺口。
+
 停止程序有兩種方式：終端機內按 Ctrl+C，或執行 `npm run stop`。後者在資料庫寫入停止請求，程序在下一次心跳（5 秒內）讀到後乾淨結束。Windows 沒有可用的 SIGTERM，所以沒有主控台的程序要用這個方式停止。
 
 ## 本機 API
@@ -174,6 +176,7 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
 - 只綁 `127.0.0.1`，不可設定。
 - `Host` header 必須是本伺服器的位址（防 DNS rebinding）。
 - 若有 `Origin` header，必須是本伺服器（防其他網站從瀏覽器呼叫）。
+- 唯讀端點：`GET /api/health`（健康報告）、`GET /api/coverage?hours=24|168`（觀測覆蓋；其他時間長度回 400，資料庫錯誤回 503，原因只寫在日誌）。
 - 目前只接受 `GET`／`HEAD`。寫入端點必須連同 session 與 CSRF 防護一起加入（M3）。
 
 ## 尚未實作

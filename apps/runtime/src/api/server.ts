@@ -2,10 +2,11 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
-import type { EnabledMode } from '@morrow/core';
+import { COVERAGE_WINDOWS_HOURS, type EnabledMode } from '@morrow/core';
 import Fastify from 'fastify';
 import type pg from 'pg';
 import type { Logger } from '../logging/logger.js';
+import { buildCoverage } from './coverage.js';
 import { buildHealthReport } from './health.js';
 import { ApiLogController } from './request-log.js';
 
@@ -76,6 +77,21 @@ export async function buildApiServer(options: ApiServerOptions) {
       logger: options.logger,
       ...(options.migrationsDir !== undefined ? { migrationsDir: options.migrationsDir } : {}),
     });
+  });
+
+  app.get('/api/coverage', async (request, reply) => {
+    reply.header('cache-control', 'no-store');
+    const hours = Number((request.query as { hours?: unknown }).hours ?? 24);
+    if (!(COVERAGE_WINDOWS_HOURS as readonly number[]).includes(hours)) {
+      return reply.code(400).send({ error: 'UNSUPPORTED_WINDOW', allowed_hours: COVERAGE_WINDOWS_HOURS });
+    }
+    try {
+      return await buildCoverage(options.pool, hours);
+    } catch (error) {
+      // The cause stays in the log; the page only needs to know there is no answer.
+      options.logger.error({ err: error }, 'coverage query failed');
+      return reply.code(503).send({ error: 'COVERAGE_UNAVAILABLE' });
+    }
   });
 
   const webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
