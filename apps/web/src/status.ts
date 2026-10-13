@@ -35,13 +35,18 @@ function sourcesIndicator(report: HealthReport): Indicator {
   const sources = report.sources.filter((source) => source.capability !== '*');
   if (sources.length === 0) return { key: 'sources', tone: 'neutral', text: '來源 尚未請求' };
   const healthy = sources.filter((source) => source.state === 'HEALTHY').length;
-  const sharedLimit = report.sources.some((source) => source.capability === '*' && source.state !== 'HEALTHY');
+  // A provider-wide backoff suppresses every capability of that provider, even
+  // the ones whose own row still reads HEALTHY, so the text names it.
+  const sharedLimits = report.sources
+    .filter((source) => source.capability === '*' && source.state !== 'HEALTHY')
+    .map((source) => source.provider);
   const tone: Tone = sources.some((source) => BAD_SOURCE_STATES.has(source.state))
     ? 'bad'
-    : healthy < sources.length || sharedLimit
+    : healthy < sources.length || sharedLimits.length > 0
       ? 'warn'
       : 'good';
-  return { key: 'sources', tone, text: `來源 正常 ${healthy}/${sources.length}` };
+  const shared = sharedLimits.length > 0 ? ` · ${sharedLimits.join('、')} 共用限流中` : '';
+  return { key: 'sources', tone, text: `來源 正常 ${healthy}/${sources.length}${shared}` };
 }
 
 function quotaIndicator(report: HealthReport): Indicator {
@@ -66,8 +71,21 @@ function deadJobsIndicator(report: HealthReport): Indicator {
   return { key: 'jobs', tone: dead > 0 ? 'bad' : 'good', text: `失敗終止的工作 ${dead}` };
 }
 
-/** The small facts shown next to the overall status, in a fixed order. */
+const UNKNOWN_INDICATORS: readonly Indicator[] = [
+  { key: 'worker', tone: 'neutral', text: 'worker 未知' },
+  { key: 'sources', tone: 'neutral', text: '來源 未知' },
+  { key: 'quota', tone: 'neutral', text: '額度 未知' },
+  { key: 'jobs', tone: 'neutral', text: '失敗終止的工作 未知' },
+];
+
+/**
+ * The small facts shown next to the overall status, in a fixed order. When
+ * the report could not read past the database (`database.problem` is set),
+ * its sessions, sources, quota and jobs are empty placeholders, not facts,
+ * so every indicator says unknown rather than "not running" or "0".
+ */
 export function indicators(report: HealthReport, now: number): Indicator[] {
+  if (report.database.problem !== null) return [...UNKNOWN_INDICATORS];
   return [workerIndicator(report, now), sourcesIndicator(report), quotaIndicator(report), deadJobsIndicator(report)];
 }
 
