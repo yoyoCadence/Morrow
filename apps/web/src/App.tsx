@@ -1,5 +1,5 @@
 import type { CoverageReport, HealthReport } from '@morrow/core';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { COVERAGE_REASON_LABELS, coverageKind, coveragePercent, formatSpan, gapTotals } from './coverage';
 import { describeProjection, projectHardStop } from './quota';
 import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources';
@@ -79,6 +79,8 @@ const MIN_GAP_UNITS = 3;
  * painted later cannot cover them.
  */
 function CoverageBand({ title, report }: { title: string; report: CoverageReport }) {
+  // Unexpected gaps also carry stripes, so they differ from observing time by more than red against green.
+  const hatchId = useId();
   const from = Date.parse(report.from);
   const span = Math.max(report.window_ms, 1);
   const gaps = gapTotals(report);
@@ -95,11 +97,17 @@ function CoverageBand({ title, report }: { title: string; report: CoverageReport
       }`,
     };
   });
-  const rect = (key: string, item: (typeof placed)[number], x: number, width: number) => (
-    <rect key={key} className={`cov-${coverageKind(item.segment.reason)}`} x={x} y={0} width={width} height={14}>
-      <title>{item.label}</title>
-    </rect>
-  );
+  const rect = (key: string, item: (typeof placed)[number], x: number, width: number) => {
+    const kind = coverageKind(item.segment.reason);
+    return (
+      // The title sits on the group, so either rectangle under the pointer shows this segment's tooltip.
+      <g key={key}>
+        <title>{item.label}</title>
+        <rect className={`cov-${kind}`} x={x} y={0} width={width} height={14} />
+        {kind === 'abnormal' ? <rect className="cov-hatch" x={x} y={0} width={width} height={14} fill={`url(#${hatchId})`} /> : null}
+      </g>
+    );
+  };
   return (
     <div className="coverage">
       <p className="coverage-head">
@@ -113,6 +121,11 @@ function CoverageBand({ title, report }: { title: string; report: CoverageReport
       </p>
       <svg className="coverage-band" viewBox="0 0 1000 14" preserveAspectRatio="none" role="img" aria-label={`${title}觀測 ${percent}`}>
         <title>{`${title}觀測 ${percent}`}</title>
+        <defs>
+          <pattern id={hatchId} patternUnits="userSpaceOnUse" width="8" height="14" patternTransform="skewX(-35)">
+            <rect className="cov-hatch-line" x="0" y="0" width="3" height="14" />
+          </pattern>
+        </defs>
         {placed.map((item) => rect(item.segment.start, item, item.x, item.width))}
         {placed
           .filter((item) => !item.segment.observing && item.width < MIN_GAP_UNITS)
@@ -248,14 +261,15 @@ function SourcesSection({ report, now }: { report: HealthReport; now: number }) 
             <p className="empty">所有來源都正常。</p>
           ) : (
             <table className="sources responsive">
+              <caption className="visually-hidden">各資料來源功能最近一次請求的結果，依供應商分組</caption>
               <thead>
                 <tr>
-                  <th>功能</th>
-                  <th>狀態</th>
-                  <th>最近結果</th>
-                  <th>額度桶</th>
-                  <th>暫停到</th>
-                  <th>最近成功</th>
+                  <th scope="col">功能</th>
+                  <th scope="col">狀態</th>
+                  <th scope="col">最近結果</th>
+                  <th scope="col">額度桶</th>
+                  <th scope="col">暫停到</th>
+                  <th scope="col">最近成功</th>
                 </tr>
               </thead>
               {groups.map((group) => (
@@ -419,13 +433,14 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
           <p className="empty">尚無執行紀錄。</p>
         ) : (
           <table className="responsive">
+            <caption className="visually-hidden">各元件最近一次的執行階段</caption>
             <thead>
               <tr>
-                <th>元件</th>
-                <th>狀態</th>
-                <th>模式</th>
-                <th>啟動</th>
-                <th>最後心跳</th>
+                <th scope="col">元件</th>
+                <th scope="col">狀態</th>
+                <th scope="col">模式</th>
+                <th scope="col">啟動</th>
+                <th scope="col">最後心跳</th>
               </tr>
             </thead>
             <tbody>
@@ -458,13 +473,14 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
           <p className="empty">沒有紀錄到缺口。</p>
         ) : (
           <table className="responsive">
+            <caption className="visually-hidden">最近記錄到的觀測缺口</caption>
             <thead>
               <tr>
-                <th>元件</th>
-                <th>原因</th>
-                <th>開始</th>
-                <th>結束</th>
-                <th>長度</th>
+                <th scope="col">元件</th>
+                <th scope="col">原因</th>
+                <th scope="col">開始</th>
+                <th scope="col">結束</th>
+                <th scope="col">長度</th>
               </tr>
             </thead>
             <tbody>
@@ -493,16 +509,17 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
         hint="本月用量。條的全長是供應商上限；條上第一道刻度是警告線，第二道是硬性上限。到達硬性上限後系統自行停止請求，不付費、不換帳號。推估以本月到目前的平均速度計算，關機的時間也算在內。"
       >
         <table className="quota responsive">
+          <caption className="visually-hidden">各額度桶本月的用量、門檻與推估</caption>
           <thead>
             <tr>
-              <th>供應商</th>
-              <th>額度桶</th>
-              <th>用量</th>
-              <th>警告線</th>
-              <th>硬性上限</th>
-              <th>供應商上限</th>
-              <th>依目前速度</th>
-              <th>狀態</th>
+              <th scope="col">供應商</th>
+              <th scope="col">額度桶</th>
+              <th scope="col">用量</th>
+              <th scope="col">警告線</th>
+              <th scope="col">硬性上限</th>
+              <th scope="col">供應商上限</th>
+              <th scope="col">依目前速度</th>
+              <th scope="col">狀態</th>
             </tr>
           </thead>
           <tbody>
@@ -510,7 +527,10 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
               <tr key={`${bucket.provider}/${bucket.bucket}`}>
                 <td className="cell-primary" data-label="供應商">
                   {bucket.provider}
-                  <span className="narrow-only"> / {bucket.bucket}</span>
+                  <span className="narrow-only" aria-hidden="true">
+                    {' '}
+                    / {bucket.bucket}
+                  </span>
                 </td>
                 <td className="wide-only" data-label="額度桶">
                   {bucket.bucket}
