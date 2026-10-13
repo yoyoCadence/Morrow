@@ -23,6 +23,8 @@ const EnvSchema = z.strictObject({
   MORROW_E2E_CHROMIUM: z.string().min(1).optional(),
   MORROW_API_PORT: z.coerce.number().int().min(1024).max(65535).default(8787),
   MORROW_LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
+  /** Where `morrow backup` writes. Absolute, outside the repository and outside the PostgreSQL data folder. */
+  MORROW_BACKUP_DIR: z.string().min(1).optional(),
   MORROW_JUPITER_API_KEY: Secret.optional(),
   MORROW_HELIUS_API_KEY: Secret.optional(),
   MORROW_OKX_API_KEY: Secret.optional(),
@@ -41,6 +43,8 @@ export interface AppConfig {
   readonly databaseUrl: string;
   readonly apiPort: number;
   readonly logLevel: (typeof LOG_LEVELS)[number];
+  /** Folder for `morrow backup`; unset until the operator chooses one. */
+  readonly backupDir?: string;
   readonly credentials: ProviderCredentials;
   /** Every secret string in this configuration, for log redaction. Never log this. */
   readonly secretValues: readonly string[];
@@ -150,6 +154,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     databaseUrl: values.MORROW_DATABASE_URL,
     apiPort: values.MORROW_API_PORT,
     logLevel: values.MORROW_LOG_LEVEL,
+    ...(values.MORROW_BACKUP_DIR !== undefined ? { backupDir: values.MORROW_BACKUP_DIR } : {}),
     credentials,
     secretValues: secrets,
   };

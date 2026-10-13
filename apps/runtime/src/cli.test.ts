@@ -48,7 +48,7 @@ test('starting the API or worker in a live mode is refused before anything else 
 });
 
 test('other commands refuse a live mode as well', async () => {
-  const commands = ['migrate', 'probe', 'status', 'stop'];
+  const commands = ['migrate', 'probe', 'status', 'stop', 'storage', 'backup'];
   const results = await Promise.all(
     commands.map((command) => runCli([command], { MORROW_MODE: 'LIVE_CANARY', MORROW_DATABASE_URL: UNREACHABLE_DB })),
   );

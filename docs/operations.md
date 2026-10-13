@@ -37,7 +37,27 @@ Node.js 與 PostgreSQL 可以用任何方式安裝，只要 `node`、`npm`、`ps
 - 資料放在 repo 之外，所以 `git clean` 不會刪到。
 - `.env` 遺失時再跑一次 `init`：它會替 `morrow` 角色換一組新密碼並重寫連線字串，資料不受影響。
 
-**目前沒有備份機制**（M4 的工作）。在那之前，`%LOCALAPPDATA%\Morrow\pgdata` 是唯一的一份資料。
+備份見下一節。`%LOCALAPPDATA%\Morrow\pgdata` 在沒有備份之前是唯一的一份資料。
+
+## 備份
+
+```powershell
+. .\scripts\dev-env.ps1     # pg_dump 與 pg_restore 要在 PATH 上
+npm run backup
+```
+
+- 第一次使用前：
+  - 在 `.env` 設定 `MORROW_BACKUP_DIR`：絕對路徑、在 repo 之外，最好在另一顆磁碟或同步資料夾。同一顆磁碟上的備份救不了磁碟故障。
+  - 再跑一次 `.\scripts\pg-local.ps1 init`，建立還原檢查用的 `morrow_restore_check`（既有資料不受影響）。
+- 每次產生兩個檔案：
+  - `morrow-public-<UTC 時間>.dump`（資料庫、schema、時間）：`pg_dump` 的 custom format；
+  - 同名的 `.json` manifest：每張表的列數、trigger、已套用的 migration、檔案大小與 SHA-256。
+- 寫完立刻還原到 `morrow_restore_check` 逐項核對，通過才印出 `Restore check passed`，並在 manifest 記下 `restore_check`。沒有 `restore_check` 的 manifest，代表那份備份沒有被成功還原過，不要依賴它。
+- 不會覆蓋使用中的資料庫：還原只進 `*_restore_check`，連線後還會再確認一次資料庫名稱。
+- 可以在 API 與 worker 執行時備份：列數與傾印來自同一個 snapshot，不需要停機。
+- 舊的備份不會自動刪除，也還沒有自動排程。建議每週跑一次，或在升級、做 migration 之前跑一次。
+- 資料庫裡沒有供應商憑證（憑證只在 `.env`），但備份內有全部的觀測與事件，請放在只有自己能讀的地方。
+- 從備份還原成正式資料庫的程序屬於 E4.2，還沒有寫成指令。需要時：停止 API 與 worker，建立一個新的空資料庫，`pg_restore --no-owner --no-privileges --exit-on-error --single-transaction -d <新資料庫> <檔案>`，確認無誤後再把 `MORROW_DATABASE_URL` 指過去。
 
 ## 啟動與停止
 
@@ -163,6 +183,9 @@ Worker 需要能直接連到：
 | 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`。一直出現時，通常是端點或參數有誤 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
+| `npm run backup`：`The restore check database "morrow_restore_check" does not exist` | 再跑一次 `.\scripts\pg-local.ps1 init`。在傾印之前就檢查，所以沒有寫出任何檔案 |
+| `npm run backup`：`pg_dump ... cannot handle a PostgreSQL 17 server` 或 `pg_dump was not found` | PATH 上的 PostgreSQL client 太舊或不存在。先 `. .\scripts\dev-env.ps1` |
+| `npm run backup`：`does not match its manifest` | 備份檔在寫完之後被改動或損壞，不要使用它。重新備份 |
 | 日誌 `scheduled slots were not run; recorded as a gap` | 固定排程有 slot 沒有執行，已記進 `schedule_gaps`。`NOT_SCHEDULED`：這段期間 worker 沒有在執行、在休眠、模式是 `OFF`，或連不上資料庫。錯過的 slot 不會補跑：晚跑拿到的只是現在的資料 |
 | 日誌 `slot held: this machine's clock is too far from the providers'`（error） | 近期回應的 `Date` 顯示本機時鐘差了 30 秒以上，排程暫停，記成 `CLOCK_SKEW` 缺口；整體狀態同時為「異常」。讓系統校時（Windows：設定 → 時間與語言 → 立即同步）。舊的量測約 30 分鐘後過期，屆時會再送出幾個請求重新量測，時鐘正確就自動恢復 |
 | 日誌 `slot skipped: the previous slot has not started yet` | 同一個排程上一個 slot 的 job 還在排隊，這個 slot 就不再排進去（`BACKLOG`）。偶爾出現是正常的；一直出現代表 `network` 隊伍跟不上：供應商回應慢、被限流，或排程太密 |
