@@ -163,6 +163,8 @@ Worker 需要能直接連到：
 | 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`。一直出現時，通常是端點或參數有誤 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
+| 日誌 `scheduled slots were not run; recorded as a gap` | 固定排程有 slot 沒有執行，已記進 `schedule_gaps`。`NOT_SCHEDULED`：這段期間 worker 沒有在執行、在休眠、模式是 `OFF`，或連不上資料庫。錯過的 slot 不會補跑：晚跑拿到的只是現在的資料 |
+| 日誌 `slot skipped: the previous slot has not started yet` | 同一個排程上一個 slot 的 job 還在排隊，這個 slot 就不再排進去（`BACKLOG`）。偶爾出現是正常的；一直出現代表 `network` 隊伍跟不上：供應商回應慢、被限流，或排程太密 |
 | `npm run test:e2e`：`Executable doesn't exist at …` | 這台機器沒有 Playwright 對應版本的 Chromium。執行 `npx playwright install --only-shell chromium`（會下載約 100 MB），或在 `.env` 設定 `MORROW_E2E_CHROMIUM` 為已安裝的 Chrome 執行檔 |
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |
 | `Cannot reach the database (connection timed out)` | 連線 10 秒內沒有建立：PostgreSQL 卡住、機器剛從休眠恢復，或連到了錯的位址 |

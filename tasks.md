@@ -61,6 +61,8 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] Helius JSON-RPC 的錯誤可能以 HTTP 200 加上 `error` 欄位回傳，目前會記成 `OK`。比照 OKX 加上 `readEnvelope`；M1 讀取鏈上資料前完成。
 - [ ] 決定多個來源回報同一事件時，如何保存各自的佐證。矛盾的部分已由 RV-06 記錄在 `event_conflicts`；說的是同一個事實的第二筆仍然只是 no-op，各自的佐證沒有保存。
 - [ ] 本機資料庫的備份與還原（屬於 E4.2，在那之前 `pgdata` 是唯一的一份）。審查建議提前，見 FT-06。
+- [ ] 排程缺口的呈現：第一個真正的排程加入時，health 與觀測覆蓋要顯示 `schedule_gaps`（FT-03 目前只記錄）。
+- [ ] 儀表板的 bundle 帶進了 core 的 `node:crypto`（`contracts/event.js` 的 fact hash；Vite 建置時警告 externalized）。目前瀏覽器不會呼叫到，但哪天呼叫就會在執行期失敗。把需要 Node 的部分移出儀表板會 import 的入口，或讓 web 只 import 它用到的契約。
 
 ### 審查發現 — M2 之前完成
 
@@ -79,7 +81,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 - [ ] **FT-01 證據瀏覽器**（P1，E4.1 的前置）— 依 subject 查事件、raw observation 的中繼資料與本文、quarantine 清單。唯讀 API，維持 GET only。
 - [ ] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。
-- [ ] **FT-03 排程器**（P0，M2 的前置）— slot 化的 dedupe key（例如 `schedule:<名稱>:<slot>`）；停機後只跑最新的 slot，錯過的部分記成缺口，不一次補發。
 - [ ] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。
 - [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
 - [ ] **FT-06 備份與還原提前**（P1）— `pg_dump` 到資料目錄之外，並還原到獨立的測試資料庫驗證；不得覆蓋使用中的資料庫。
@@ -125,3 +126,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **UI-06 窄螢幕版面**（P2；U3）— 640 px 以下表格改為卡片清單，狀態放在第一行。實作：只用 CSS，表格仍是同一份 markup：每個儲存格有 `data-label`，640 px 以下每列變成一張卡片，第一行是這一列在講什麼（`cell-primary`：元件、功能、供應商與額度桶）與狀態（`cell-status`），其餘是「標籤　值」。套用在程序、觀測缺口、資料來源、額度四張表；沒有內容的行（沒有退避、沒有月額度）在卡片裡省略，寬版仍顯示「—」。表頭在畫面上隱藏但留給螢幕閱讀器。Playwright 驗證 390、640、1280 px 下頁面與每張卡片都沒有橫向捲動，亮色與深色都截圖確認；1280 px 版面不變。（2026-10-14）
 - [x] **UI-08 無障礙**（P2）— 表格 caption、清楚的焦點樣式、`prefers-reduced-motion`、狀態不只靠顏色表達。實作：先以瀏覽器的無障礙樹量測，再修正量到的問題：表頭原本被當成一般的 cell（補上 `scope="col"`，24 個 columnheader）；4 張表都有只給螢幕閱讀器的 caption；窄版卡片裡的標籤原本被讀進每一格（改用 `content: attr(data-label) / ""`）；窄版省略的空行原本從無障礙樹消失，每列的格數不一致（改為只在視覺上隱藏，1280 與 390 px 都是 127 格）；鍵盤焦點有清楚的外框（兩種主題都有 `--focus` 色）；覆蓋帶的「非預期中斷」加上斜紋，不只靠紅與綠區分，圖例同步。頁面沒有任何動畫或轉場，所以 `prefers-reduced-motion` 本來就符合；之後加入的動畫一律放在 `prefers-reduced-motion: no-preference` 裡。UI-06 擔心的「卡片版面失去表格語意」實測沒有發生（Chromium 保留了 table 角色）。（2026-10-14）
 - [x] **UI-09 前端測試**（P2，需 RV-05）— 狀態判斷抽成純函式並以 `node:test` 測試；CI 加一個 Playwright 冒煙測試（亮色、深色、390 px）。實作：儀表板的純函式模組（`time`、`status`、`sources`、`quota`、`coverage`、`poll`）由 `apps/web/tsconfig.test.json` 編譯到 `apps/web/dist-test`，以 `node:test` 執行，納入 `npm test` 與 `npm run test:unit`，共 35 個測試；fixture 以共用契約的 schema 驗證，API 不可能送出的報告會直接失敗。為了讓 Node 能執行編譯結果，web 的相對 import 改為 `.js` 副檔名（Vite 照樣解析）。`fetchChecked` 對本機 HTTP 伺服器測試契約不符、非 JSON、HTTP 錯誤、逾時（包括 header 準時、本文卡住，#28 的回歸）、連線失敗與取消；`startPolling` 以假的頁面與 mock timers 測試不重疊、背景放慢、回到前景立即更新、停止後不再執行。把兩道防護同時拿掉時對應的測試會失敗（只拿掉一道時另一道仍擋住，行為不變）。冒煙測試 `apps/runtime/src/api/dashboard.e2e.ts`（`npm run test:e2e`）：真實的 API 伺服器、種好資料的測試資料庫、建置好的 dashboard，以 Playwright 1.63.0 的 Chromium 在亮色與深色、1280 與 390 px 檢查整體狀態、分頁標題與 favicon、各區塊、來源列的狀態與額度桶、頁面與卡片不橫向捲動、背景跟隨色彩配置，以及主控台沒有任何錯誤或警告（含 CSP 違規）、沒有失敗的請求。CI 在 `npm test` 之後安裝 Chromium（headless shell）並執行；本機可用 `MORROW_E2E_CHROMIUM` 指定已安裝的 Chromium 或 Chrome。測試找到兩個問題，同一個 PR 修正：(1) 額度百分比先除後乘，浮點誤差讓剛好 29%（85,000 的 24,650）顯示為 28%，改為先乘後除（`usedPercent`），覆蓋率同樣處理；(2) 自 UI-07 起，每次載入頁面瀏覽器都回報一個 CSP 違規：zod 4 用 `new Function` 試探能否編譯 parser，被 CSP 擋下後雖然有攔截，瀏覽器仍會回報。改為在任何 schema 建立之前設定 `jitless`（`apps/web/src/zod-config.ts`）。UI-07 驗證時的模擬伺服器沒有送 CSP header，所以當時沒有看到。（2026-10-14）
+- [x] **FT-03 排程器**（P0，M2 的前置）— slot 化的 dedupe key（例如 `schedule:<名稱>:<slot>`）；停機後只跑最新的 slot，錯過的部分記成缺口，不一次補發。實作：`apps/runtime/src/jobs/scheduler.ts` 與 migration `0006`。Slot 對齊 UTC epoch，dedupe key 為 `schedule:<名稱>:<slot 開始的 ISO 時間>`，payload 帶 `schedule` 與 `slot_start`，預設不重試（下一個 slot 就是重試）；沒有 tick 到達資料庫的 slot（停機、休眠、`OFF`、資料庫連不上）只跑目前的一個，其餘記成一列 `NOT_SCHEDULED`；上一個 slot 的 job 還在排隊時跳過、不堆積，積壓結束時記成一列 `BACKLOG`。狀態在 `schedule_state`（可變投影），缺口在 append-only 的 `schedule_gaps`。Worker 只在 `RESEARCH`／`PAPER` 執行排程；排程的 job 種類沒有 handler 時拒絕啟動，且在記錄 session 之前。**目前沒有登記任何排程**：現有的 job 只有 parse 與 probe，藍圖的固定排程要隨各自的 handler（E1、E2）一起加入 `defaultSchedules`。（2026-10-14）

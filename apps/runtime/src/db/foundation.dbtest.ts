@@ -236,6 +236,11 @@ test('evidence, events and logs cannot be changed, deleted or truncated', async 
      VALUES ($1, 'test@1', '$', '$.x', '0.5', 'UNIT_UNVERIFIED')`,
     [raw.id],
   );
+  await db.pool.query(
+    `INSERT INTO schedule_gaps (schedule, reason, gap_start, gap_end, missed_slots, detected_by_session_id)
+     VALUES ('test.append-only', 'NOT_SCHEDULED', now() - interval '10 minutes', now(), 10, $1)`,
+    [sessionId],
+  );
 
   const mutations: Record<string, string> = {
     raw_payloads: 'byte_length = byte_length',
@@ -247,6 +252,7 @@ test('evidence, events and logs cannot be changed, deleted or truncated', async 
     audit_log: "actor = 'someone-else'",
     parse_quarantine: "reason = 'OK'",
     event_conflicts: "dedupe_key = 'x'",
+    schedule_gaps: 'missed_slots = missed_slots',
   };
   for (const [table, assignment] of Object.entries(mutations)) {
     const before = await db.pool.query(`SELECT count(*)::int AS n FROM ${table}`);

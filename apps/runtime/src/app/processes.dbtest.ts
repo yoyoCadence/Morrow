@@ -419,6 +419,39 @@ test('the worker runs queued jobs and stops cleanly', async (t) => {
   assert.equal(await sessionStatus(db, worker.sessionId), 'STOPPED');
 });
 
+test('in RESEARCH the worker enqueues the current slot of each schedule and runs it', async (t) => {
+  const db = await freshDb(t);
+  const seen: unknown[] = [];
+  const handlers = new Map<string, JobHandler>([['test.slot', async (job) => void seen.push(job.payload['schedule'])]]);
+  const schedules = [{ name: 'test.every-minute', kind: 'test.slot', everyMs: 60_000 }];
+  const worker = await startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers, schedules });
+  defer(t, () => worker.stop('test'));
+
+  const deadline = Date.now() + 20_000;
+  while (seen.length === 0 && Date.now() < deadline) await sleep(25);
+  assert.deepEqual(seen, ['test.every-minute']);
+  const jobs = await db.pool.query<{ dedupe_key: string }>("SELECT dedupe_key FROM jobs WHERE kind = 'test.slot'");
+  assert.match(jobs.rows[0]?.dedupe_key ?? '', /^schedule:test\.every-minute:\d{4}-\d\d-\d\dT\d\d:\d\d:00\.000Z$/);
+});
+
+test('OFF mode runs no schedules, and a schedule nobody handles stops the start', async (t) => {
+  const db = await freshDb(t);
+  const schedules = [{ name: 'test.every-minute', kind: 'test.slot', everyMs: 60_000 }];
+  const handlers = new Map<string, JobHandler>([['test.slot', async () => undefined]]);
+  const off = await startWorkerProcess({ ...deps(db, 'OFF'), handlers, schedules });
+  await sleep(300);
+  await off.stop('test');
+  assert.equal((await db.pool.query('SELECT 1 FROM schedule_state')).rowCount, 0, 'OFF contacts no provider, so it schedules nothing');
+
+  const before = (await db.pool.query('SELECT count(*)::int AS n FROM run_sessions')).rows[0];
+  await assert.rejects(
+    startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers: new Map(), schedules }),
+    /No handler for the job kind of schedule\(s\): test\.every-minute/,
+  );
+  const afterwards = (await db.pool.query('SELECT count(*)::int AS n FROM run_sessions')).rows[0];
+  assert.deepEqual(afterwards, before, 'refused before a session was recorded');
+});
+
 test('a stop requested through the database shuts the worker down cleanly', async (t) => {
   const db = await freshDb(t);
   const worker = await startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers: new Map() });

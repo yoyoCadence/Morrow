@@ -32,7 +32,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 | `logging/` | JSON 日誌與 secret redaction |
 | `db/` | 連線池、transaction、migration 執行器、原始證據儲存、稽核紀錄 |
 | `events/` | Canonical event 的寫入 |
-| `jobs/` | 工作佇列與 worker loop |
+| `jobs/` | 工作佇列、worker loop 與固定排程（`scheduler.ts`） |
 | `session/` | 執行階段、心跳、觀測缺口 |
 | `quota/` | 額度政策與帳本 |
 | `providers/` | 供應商定義、功能清單、HTTP 客戶端、來源健康狀態、probe |
@@ -108,6 +108,8 @@ Migration 在 [apps/runtime/migrations](../apps/runtime/migrations)，每個檔�
 | `consumer_inbox` | 只增 | Consumer 端去重 |
 | `run_sessions` | 可變 | 執行階段與心跳 |
 | `session_gaps` | append-only | 沒有在觀測的時段 |
+| `schedule_state` | 可變 | 每個固定排程目前到哪個 slot、上一個 job、是否積壓中（投影，`0006`） |
+| `schedule_gaps` | append-only | 固定排程沒有執行的 slot，每一段一列，附原因（`0006`） |
 | `quota_counters` | 可變 | 每個額度桶在每個計費週期的累計用量 |
 | `quota_events` | append-only | 每一次額度預留的嘗試，包含被拒絕的 |
 | `source_health` | 可變 | 每個供應商功能的目前狀態（投影） |
@@ -129,6 +131,18 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 - 失敗會延遲重試，次數用完後進入 `dead`。
 
 這不是 exactly-once。對外部系統有副作用的 handler 必須自己能安全地重複執行。
+
+### 固定排程
+
+`jobs/scheduler.ts`（FT-03）。藍圖的「固定排程」（例如 Jupiter recent 每 60 秒、OKX hot-token 每 5 分鐘）以 `Schedule` 宣告：名稱、job 種類、slot 長度。在 `app/processes.ts` 的 `defaultSchedules` 登記，handler 照常在 `defaultHandlers` 登記；目前兩者都還沒有任何排程。
+
+- **Slot**：時間依 slot 長度切段，對齊 UTC epoch（5 分鐘的排程在 :00、:05…，與 worker 何時啟動無關）。每個 slot 至多一個 job，dedupe key 是 `schedule:<名稱>:<slot 開始時間>`，payload 帶 `schedule` 與 `slot_start`。一個排程是每個 slot 一個 job，不是每個 token 一個；涵蓋多個對象（六個 active tokens、warm universe）的 handler 自己逐一處理。
+- **不補發**：觀測描述的是送出請求的那一刻，晚跑的 slot 拿到的是現在的資料，補不回錯過的時段。所以停機（或資料庫連不上）後只跑目前的 slot，錯過的 slot 記成一列 `NOT_SCHEDULED` 缺口。
+- **不堆積**：新的 slot 開始時，上一個 slot 的 job 若還沒開始執行（仍是 `queued`），這個 slot 就跳過，不排在它後面；連續跳過的 slot 在積壓結束時記成一列 `BACKLOG` 缺口。所以每個排程最多一個在執行、一個在等。
+- **預設不重試**（`maxAttempts` 1）：下一個 slot 就是重試。
+- 只在 `RESEARCH`／`PAPER` 模式執行。`OFF` 期間的 slot，在之後以 `RESEARCH`／`PAPER` 啟動時記成 `NOT_SCHEDULED`。排程的 job 種類沒有 handler 時，worker 拒絕啟動（否則那個 job 永遠在等，之後每個 slot 都會被跳過）。
+- 每秒檢查一次；只有 slot 邊界過了才碰資料庫。狀態列以 `FOR UPDATE` 鎖住，加上 dedupe key，同一個 slot 只會排一次。
+- 缺口目前只記錄，health 與儀表板還沒有顯示；第一個真正的排程加入時一起做（tasks.md）。
 
 ### 時鐘偏移
 
@@ -189,6 +203,6 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
 - Discovery、排序、cohort inventory（M2）
 - ResearchPacket、thesis、signals、sizing、Telegram（M3）
 - 完整 dashboard、session recovery（游標與回補）、備份還原、attribution（M4）
-- 排程器：目前沒有任何定期工作
+- 定期工作：排程器已就緒（FT-03），但還沒有登記任何排程；藍圖的固定排程隨各自的 handler 加入
 
 已知的後續強化項目列在 [tasks.md](../tasks.md) 的 Backlog。

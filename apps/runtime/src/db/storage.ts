@@ -21,8 +21,10 @@ export const STORAGE_TIME_COLUMNS: Readonly<Record<string, string | null>> = {
   provider_probes: 'probed_at',
   run_sessions: 'started_at',
   session_gaps: 'detected_at',
+  schedule_gaps: 'detected_at',
   source_health: null,
   quota_counters: null,
+  schedule_state: null,
   schema_migrations: null,
 };
 
