@@ -49,6 +49,17 @@ jobs:
           cache: npm
       - name: Install (lockfile only, no install scripts)
         run: npm ci
+      # The backup tests run pg_dump and pg_restore, which must be at least as
+      # new as the server. The runner's own client is older, so the PostgreSQL
+      # 17 client comes from the PostgreSQL project's signed apt repository.
+      - name: Install the PostgreSQL 17 client tools
+        run: |
+          sudo apt-get install -y -q postgresql-common
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y -q postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Create the restore check database
+        run: psql "postgres://morrow@127.0.0.1:5432/morrow_test" -c "CREATE DATABASE morrow_test_restore_check"
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build

@@ -5,7 +5,9 @@
 .DESCRIPTION
   init    Create the cluster, the "morrow" role and the "morrow" and
           "morrow_test" databases, then write the connection strings to .env.
-          Safe to re-run.
+          Also creates "morrow_restore_check" and "morrow_test_restore_check",
+          where "npm run backup" and its tests restore a backup to check it.
+          Safe to re-run: existing databases and data are left alone.
   start   Start the server.
   stop    Stop the server.
   status  Report whether the server is running.
@@ -143,7 +145,7 @@ $verb ROLE morrow LOGIN PASSWORD :'pw';
         Write-Host 'Role "morrow" is ready; connection strings written to .env.'
     }
 
-    foreach ($database in @('morrow', 'morrow_test')) {
+    foreach ($database in @('morrow', 'morrow_test', 'morrow_restore_check', 'morrow_test_restore_check')) {
         $exists = (Invoke-SuperuserSql "SELECT 1 FROM pg_database WHERE datname = '$database';") -eq '1'
         if (-not $exists) {
             Invoke-SuperuserSql "CREATE DATABASE $database OWNER morrow;" | Out-Null

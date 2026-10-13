@@ -30,7 +30,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 |---|---|
 | `config/` | 讀取並嚴格驗證環境變數；實盤模式在這裡被拒絕 |
 | `logging/` | JSON 日誌與 secret redaction |
-| `db/` | 連線池、transaction、migration 執行器、原始證據儲存、稽核紀錄 |
+| `db/` | 連線池、transaction、migration 執行器、原始證據儲存、稽核紀錄、儲存量測、備份與還原檢查 |
 | `events/` | Canonical event 的寫入 |
 | `jobs/` | 工作佇列、worker loop 與固定排程（`scheduler.ts`） |
 | `session/` | 執行階段、心跳、觀測缺口 |
@@ -120,6 +120,16 @@ Migration 在 [apps/runtime/migrations](../apps/runtime/migrations)，每個檔�
 
 Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 
+### 備份
+
+`npm run backup`（`db/backup.ts`，FT-06）。一次備份分三步：
+
+1. 在一個 `REPEATABLE READ` 的 transaction 裡 export snapshot，讀出每張表的列數、trigger 與已套用的 migration。
+2. `pg_dump --snapshot` 用同一個 snapshot 傾印 `public` schema（custom format，不含 owner 與權限），所以 manifest 與傾印描述的是同一份資料，worker 繼續寫入也一樣。
+3. 傾印先寫成 `.partial`，完成後才改名。旁邊的 manifest（JSON）記錄大小、SHA-256 與上述內容。
+
+接著還原到 `<資料庫>_restore_check`（先刪掉同名 schema；archive 的目錄沒有建立該 schema 時才自己建立，因為 pg_dump 是否把 `public` 本身寫進 archive 依傾印方式與版本而定），核對 SHA-256、每張表的列數、trigger 與 migration。通過後刪掉還原出來的 schema，並在 manifest 記下 `restore_check`；不符時保留它供檢查。還原的目標名稱由程式推導、必定以 `_restore_check` 結尾，且在刪除任何東西之前以 `current_database()` 再確認一次，所以不會覆蓋使用中的資料庫。連線資訊以 `PG*` 環境變數傳給 pg_dump／pg_restore，密碼不會出現在程序清單；工具版本必須不舊於伺服器。
+
 各表的成長以 `npm run storage` 量測；保留策略見 [ADR-0001](adr/0001-storage-retention.md)（提案中）。新增資料表時，要在 `db/storage.ts` 的 `STORAGE_TIME_COLUMNS` 登記它的時間欄位（或 `null`），否則測試會失敗。
 
 ### 工作佇列的語意
@@ -203,7 +213,7 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
 - Paper ledger、quote model、risk、reservation、replay（M1）
 - Discovery、排序、cohort inventory（M2）
 - ResearchPacket、thesis、signals、sizing、Telegram（M3）
-- 完整 dashboard、session recovery（游標與回補）、備份還原、attribution（M4）
+- 完整 dashboard、session recovery（游標與回補）、自動定期備份與災後還原程序、attribution（M4）
 - 定期工作：排程器已就緒（FT-03），但還沒有登記任何排程；藍圖的固定排程隨各自的 handler 加入
 
 已知的後續強化項目列在 [tasks.md](../tasks.md) 的 Backlog。

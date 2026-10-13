@@ -41,7 +41,7 @@ npm run build
 npm run migrate
 ```
 
-`pg-local.ps1 init` 會建立 `morrow` 與 `morrow_test` 兩個資料庫，密碼隨機產生、只寫入 `.env`，不會顯示在畫面上。資料放在 `%LOCALAPPDATA%\Morrow\pgdata`，在 repo 之外，`git clean` 刪不到。
+`pg-local.ps1 init` 會建立 `morrow` 與 `morrow_test` 兩個資料庫，以及備份檢查用的 `morrow_restore_check`、`morrow_test_restore_check`（已經 init 過的機器再跑一次 init 即可補上，資料不受影響），密碼隨機產生、只寫入 `.env`，不會顯示在畫面上。資料放在 `%LOCALAPPDATA%\Morrow\pgdata`，在 repo 之外，`git clean` 刪不到。
 
 ## 日常使用
 
@@ -64,13 +64,14 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | `npm run typecheck` | 型別檢查 |
 | `npm run lint` | Biome lint（CI 會執行） |
 | `npm run format` | 以 Biome 格式化（尚未強制，見 tasks.md 的 RV-11b） |
-| `npm test` | 全部測試（需要測試資料庫） |
+| `npm test` | 全部測試（需要測試資料庫、`morrow_test_restore_check`，以及 PATH 上與伺服器同版本或更新的 `pg_dump`／`pg_restore`） |
 | `npm run test:unit` | 不需要資料庫的測試 |
 | `npm run test:e2e` | 儀表板冒煙測試：在 Chromium 中開啟建置好的儀表板（需要測試資料庫，以及 `npx playwright install --only-shell chromium` 或 `MORROW_E2E_CHROMIUM`） |
 | `npm run migrate` | 套用尚未執行的 migration |
 | `npm run api` / `npm run worker` | 啟動 API／worker |
 | `npm run stop [-- api\|worker]` | 請執行中的程序乾淨停止 |
 | `npm run status` | 以 JSON 輸出健康狀態；只有 `ok` 時 exit 0 |
+| `npm run backup` | 把資料庫備份到 `MORROW_BACKUP_DIR`，並還原到 `morrow_restore_check` 逐表核對；核對通過才算備份成功（見 [docs/operations.md](docs/operations.md)） |
 | `npm run storage` | 各資料表的大小與近 24 小時的成長（會掃描每張表，資料多時要等一下） |
 | `npm run probe` | 量測目前金鑰實際可用的供應商功能 |
 | `npm run dev:web` | dashboard 開發伺服器（需要 API 同時執行） |
@@ -85,7 +86,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | 型別檢查 | `npm run typecheck` |
 | Lint | `npm run lint`（Biome，recommended 規則） |
 | 建置 | `npm run build` |
-| 全部測試 | `npm test`（CI 使用 PostgreSQL 17 的 service container） |
+| 全部測試 | `npm test`（CI 使用 PostgreSQL 17 的 service container；備份測試用的 PostgreSQL 17 client 從 PostgreSQL 官方的 apt 套件庫安裝） |
 | 儀表板冒煙測試 | `npx playwright install --with-deps --only-shell chromium`，再 `npm run test:e2e` |
 | Migration 冒煙測試 | `npm run migrate` 兩次，第二次必須回報已是最新 |
 
@@ -100,6 +101,7 @@ CI 不使用任何 secret：測試從不連到真實供應商，資料庫是用�
 | `MORROW_MODE` | `OFF` | `OFF`、`RESEARCH` 或 `PAPER`。`OFF` 不會連線到資料供應商 |
 | `MORROW_DATABASE_URL` | 必填 | 本機 PostgreSQL |
 | `MORROW_TEST_DATABASE_URL` | — | 只給 `npm test` 用，資料庫名稱必須以 `_test` 結尾 |
+| `MORROW_BACKUP_DIR` | — | `npm run backup` 的輸出資料夾：絕對路徑、在 repo 之外，最好在另一顆磁碟或同步資料夾 |
 | `MORROW_E2E_CHROMIUM` | — | 只給 `npm run test:e2e` 用：已安裝的 Chromium 或 Chrome 執行檔，取代 Playwright 下載的版本 |
 | `MORROW_API_PORT` | `8787` | API 連接埠，位址固定為 `127.0.0.1` |
 | `MORROW_LOG_LEVEL` | `info` | |

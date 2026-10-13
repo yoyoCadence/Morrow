@@ -5,7 +5,8 @@ import { SchemaNotCurrentError, startApiProcess, startWorkerProcess, type Runnin
 import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { migrate, MigrationError } from './db/migrate.js';
 import { createPool, isConnectionTimeout, type PoolOptions } from './db/pool.js';
-import { formatStorageReport, measureStorage } from './db/storage.js';
+import { assertRestoreCheckPossible, BackupError, checkRestore, createBackup } from './db/backup.js';
+import { formatBytes, formatStorageReport, measureStorage } from './db/storage.js';
 import { enqueueJob, getJobState } from './jobs/job-queue.js';
 import { sleep } from './jobs/worker.js';
 import { createLogger } from './logging/logger.js';
@@ -25,6 +26,7 @@ Usage: morrow <command>
   probe              Measure what the configured provider credentials can use.
   status             Print the health report as JSON.
   storage            Print the size and daily growth of each table.
+  backup             Dump the database to MORROW_BACKUP_DIR and check that it restores.
 `;
 
 function print(text: string): void {
@@ -176,6 +178,30 @@ async function commandStorage(config: AppConfig): Promise<number> {
   );
 }
 
+async function commandBackup(config: AppConfig): Promise<number> {
+  if (config.backupDir === undefined) {
+    print('MORROW_BACKUP_DIR is not set. Set it in .env to an absolute folder outside the repository, ideally on another disk.');
+    return 2;
+  }
+  const backupDir = config.backupDir;
+  const redact = createRedactor(config.secretValues);
+  // Counting rows scans every table, like `storage`.
+  return withPool(
+    config,
+    'backup',
+    async (pool) => {
+      await assertRestoreCheckPossible(config.databaseUrl);
+      const backup = await createBackup({ pool, connectionString: config.databaseUrl, schema: 'public', dir: backupDir, redact });
+      const rows = Object.values(backup.manifest.tables).reduce((sum, count) => sum + count, 0);
+      print(`Backup written: ${backup.file} (${formatBytes(backup.manifest.bytes)}, ${rows} rows)`);
+      const check = await checkRestore({ connectionString: config.databaseUrl, manifestFile: backup.manifestFile, redact });
+      print(`Restore check passed: ${check.tables} tables and ${check.rows} rows restored into "${check.database}" match the backup.`);
+      return 0;
+    },
+    { statementTimeoutMs: 300_000 },
+  );
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, argument] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
@@ -190,6 +216,7 @@ async function main(argv: readonly string[]): Promise<number> {
     probe: commandProbe,
     status: commandStatus,
     storage: commandStorage,
+    backup: commandBackup,
   };
   const run = commands[command];
   if (!run) {
@@ -211,7 +238,8 @@ main(process.argv.slice(2)).then(
       error instanceof ModeNotEnabledError ||
       error instanceof SchemaNotCurrentError ||
       error instanceof SessionConflictError ||
-      error instanceof MigrationError;
+      error instanceof MigrationError ||
+      error instanceof BackupError;
     const code = (error as NodeJS.ErrnoException | null)?.code;
     if (expected) {
       process.stderr.write(`${error.message}\n`);
