@@ -71,7 +71,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 依賴 RV-01／RV-03 提供的欄位。設計原則：這是操作工具，不是交易終端；視覺先回答「能不能相信這個畫面」，不做會誘發追高的動態效果（審查 §6）。
 
-- [ ] **UI-05 觀測覆蓋帶**（P1）— 近 24 小時與 7 天的時間軸，標出觀測中與缺口，附覆蓋率百分比。需要 API 提供時間範圍內的 session 與 gap。
 - [ ] **UI-06 窄螢幕版面**（P2；U3）— 640 px 以下表格改為卡片清單，狀態放在第一行。
 - [ ] **UI-07 輪詢穩健性**（P1；U8）— 請求逾時與取消、不重疊、分頁在背景時暫停、以 `HealthReport` schema 驗證回應以發現契約漂移。
 - [ ] **UI-08 無障礙**（P2）— 表格 caption、清楚的焦點樣式、`prefers-reduced-motion`、狀態不只靠顏色表達。
@@ -125,3 +124,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **UI-02 頁首狀態列**（P1，需 RV-03；U4）— 四級整體狀態與對應顏色；小指標：worker 心跳、健康來源數、最高額度使用率、dead job 數；分頁標題與 favicon 隨狀態變化。實作：`StatusBar`（整體狀態以文字呈現，色調與左側實線只是重複；「N 個原因，見下方」）與 4 個小指標：worker 心跳（`LIVE` 顯示相對時間，`STALE` 為心跳中斷，未執行只在有 `WORKER_NOT_RUNNING` 時標紅）、來源「正常 N/M」（不計 `*` 列；共用限流未解除時標黃，並寫出是哪個供應商）、最接近硬性上限的額度桶百分比（無條件捨去）、失敗終止的工作數。報告無法讀過資料庫那一段時（`database.problem` 有值），這些欄位只是空的佔位，4 個指標一律顯示「未知」，不顯示「未執行」或「0」。純函式在 `apps/web/src/status.ts`，留給 UI-09 測試。分頁標題為「異常 · Morrow」這類格式，API 無回應時為「連線中斷 · Morrow」；favicon 是 `apps/web/public/` 下 5 個靜態 SVG，形狀也不同（勾、驚嘆號、八角形叉、空心圓），不只靠顏色。用靜態檔而不是 `data:` URL，因為 API 的 CSP 是 `default-src 'self'`。（2026-10-13）
 - [x] **UI-03 資料來源表**（P1，需 RV-03；U2、U6）— 修正 1280 px 下的截斷；依供應商分組、問題排最前面、「只看異常」篩選；顯示錯誤類別與額度桶；退避中顯示剩餘時間。實作：依供應商分組，最嚴重的供應商排最前面，組內問題排前面（`apps/web/src/sources.ts`，純函式）；組標題寫出「N 個功能，M 個有問題」，`*` 列不算功能，共用限流另外寫成「整個供應商限流中」。「只看異常」隱藏 HEALTHY 的列並寫出隱藏了幾個，選擇記在 localStorage（被封鎖時只是不記住）。新增「額度桶」欄：契約的 `SourceHealthView.quota_bucket`（由 registry 的 `quotaBucketOf` 填入）加上本月用量百分比。錯誤類別已隨 RV-03 顯示；退避剩餘時間已隨 UI-01 以「41 秒後」顯示。1280 px 下不再出現橫向捲動：長的錯誤文字可以換行。（2026-10-13）
 - [x] **UI-04 額度視覺**（P2；U7）— 自繪進度條標出警告線、硬性上限與供應商上限，顏色與狀態一致；依本月燃燒率推估達到硬性上限的日期。實作：SVG 進度條（不需要 inline style，符合 API 的 CSP），全長是供應商上限，刻度標出警告線與硬性上限，填色依 OK／WARN／HARD_STOP；契約新增 `QuotaView.source_limit`（來自 `QUOTA_POLICIES.sourceLimit`）。「依目前速度」欄（`apps/web/src/quota.ts`，純函式）以本月到目前的平均速度推估：本月內達到時寫出台北日期，否則寫出月底約為上限的幾 %；本月未滿一天不推估（幾小時的速度只代表一次突發）；已達上限、尚無用量各有說明。平均以日曆時間計算，關機時間也算在內，所以只是粗估。（2026-10-13）
+- [x] **UI-05 觀測覆蓋帶**（P1）— 近 24 小時與 7 天的時間軸，標出觀測中與缺口，附覆蓋率百分比。需要 API 提供時間範圍內的 session 與 gap。實作：新增唯讀端點 `GET /api/coverage?hours=24|168` 與契約 `CoverageReport`；`api/coverage.ts` 的 `coverageSegments`（純函式）把 worker 的 session 與 `session_gaps` 換算成連續的區段，未觀測的每一段都有原因（`OFFLINE`、`UNCLEAN_SHUTDOWN`、`HEARTBEAT_STALL`、`HEARTBEAT_LOST`、`MODE_OFF`、`NO_RECORD`）；重新啟動時兩次讀取時鐘造成、短於 1 秒的縫隙併入前一段（資料庫測試先重現了這個縫隙）。儀表板以 SVG 畫近 24 小時與 7 天兩條，每段有 tooltip，寫出覆蓋率（無條件捨去）與各原因的總時間；每分鐘更新一次，與健康報告分開。（2026-10-13）

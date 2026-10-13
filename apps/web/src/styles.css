@@ -433,3 +433,87 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
   min-width: 12em;
 }
+
+/* Observation coverage: one strip per window. */
+.coverage {
+  margin-top: 8px;
+}
+
+.coverage + .coverage {
+  margin-top: 16px;
+}
+
+.coverage-head {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.coverage-gaps {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.coverage-band {
+  display: block;
+  width: 100%;
+  height: 14px;
+  border-radius: 3px;
+}
+
+.coverage-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cov-observing {
+  fill: var(--good);
+  background: var(--good);
+}
+
+.cov-abnormal {
+  fill: var(--bad);
+  background: var(--bad);
+}
+
+.cov-stopped {
+  fill: var(--muted);
+  background: var(--muted);
+}
+
+.cov-unknown {
+  fill: var(--neutral-bg);
+  background: var(--neutral-bg);
+}
+
+.coverage-legend {
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.coverage-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
