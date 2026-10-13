@@ -51,8 +51,60 @@ main {
 }
 
 header h1 {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 24px;
+}
+
+.title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 16px;
+  margin-bottom: 8px;
+}
+
+.freshness {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A steady dot, never blinking: freshness is a fact, not an alarm. */
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.dot-good {
+  background: var(--good);
+}
+
+.dot-warn {
+  background: var(--warn);
+}
+
+.dot-bad {
+  background: var(--bad);
+}
+
+/* The last known report while the API is unreachable. */
+.report-stale {
+  opacity: 0.55;
+  filter: grayscale(0.6);
+}
+
+/* Relative times carry the full time as a tooltip. */
+time[title] {
+  text-decoration: underline dotted var(--muted);
+  text-underline-offset: 3px;
+  cursor: help;
 }
 
 h2 {

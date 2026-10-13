@@ -1,13 +1,19 @@
 import type { HealthReport } from '@morrow/core';
 import { useEffect, useState } from 'react';
 
-const REFRESH_MS = 10_000;
+export const REFRESH_MS = 10_000;
+
+/** A report and when this page received it. */
+export interface ReceivedReport {
+  readonly report: HealthReport;
+  readonly fetchedAt: Date;
+}
 
 export type HealthState =
   | { readonly kind: 'loading' }
-  | { readonly kind: 'ready'; readonly report: HealthReport; readonly fetchedAt: Date }
+  | ({ readonly kind: 'ready' } & ReceivedReport)
   /** The API did not answer. `last` is the most recent report we did get, if any. */
-  | { readonly kind: 'unreachable'; readonly message: string; readonly last: HealthReport | null };
+  | { readonly kind: 'unreachable'; readonly message: string; readonly last: ReceivedReport | null };
 
 /** Polls the local API for the health report. */
 export function useHealth(): HealthState {
@@ -28,7 +34,12 @@ export function useHealth(): HealthState {
         setState((previous) => ({
           kind: 'unreachable',
           message,
-          last: previous.kind === 'ready' ? previous.report : previous.kind === 'unreachable' ? previous.last : null,
+          last:
+            previous.kind === 'ready'
+              ? { report: previous.report, fetchedAt: previous.fetchedAt }
+              : previous.kind === 'unreachable'
+                ? previous.last
+                : null,
         }));
       }
     }
@@ -42,4 +53,14 @@ export function useHealth(): HealthState {
   }, []);
 
   return state;
+}
+
+/** The current time, updated every `intervalMs`, so relative times keep counting between polls. */
+export function useNow(intervalMs = 1_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(timer);
+  }, [intervalMs]);
+  return now;
 }
