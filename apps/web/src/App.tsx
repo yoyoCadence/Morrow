@@ -1,5 +1,6 @@
 import type { HealthReport } from '@morrow/core';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources';
 import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status';
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
 import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth';
@@ -55,9 +56,107 @@ function stillBlocked(blockedUntil: string | null, now: number): boolean {
   return blockedUntil !== null && Date.parse(blockedUntil) > now;
 }
 
-function sourceTone(state: HealthReport['sources'][number]['state']): Tone {
-  if (state === 'HEALTHY') return 'good';
-  return state === 'RATE_LIMITED' || state === 'CREDENTIAL_MISSING' || state === 'REQUEST_REJECTED' ? 'warn' : 'bad';
+// The "only issues" choice is a per-browser convenience; without storage it simply starts unticked.
+const ONLY_ISSUES_KEY = 'morrow.sources.onlyIssues';
+
+function readOnlyIssues(): boolean {
+  try {
+    return window.localStorage.getItem(ONLY_ISSUES_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeOnlyIssues(value: boolean): void {
+  try {
+    window.localStorage.setItem(ONLY_ISSUES_KEY, value ? '1' : '0');
+  } catch {
+    // Storage blocked: the choice lasts until the page is closed.
+  }
+}
+
+function lastResult(source: HealthReport['sources'][number]): string {
+  const details = [source.last_http_status !== null ? `HTTP ${source.last_http_status}` : null, source.last_error_class].filter(Boolean);
+  return details.length > 0 ? `${source.last_outcome}（${details.join(' · ')}）` : source.last_outcome;
+}
+
+/**
+ * Sources grouped by provider, the provider with the worst problem first and
+ * problems first within it, with an "only issues" filter. The quota bucket
+ * column shows which monthly allowance a capability spends and how much of
+ * it is used.
+ */
+function SourcesSection({ report, now }: { report: HealthReport; now: number }) {
+  const [onlyIssues, setOnlyIssues] = useState(readOnlyIssues);
+  const groups = groupSources(report.sources, onlyIssues);
+  // The provider-wide row (`*`) is not a capability, so it is not counted among the hidden ones.
+  const hidden = onlyIssues
+    ? report.sources.filter((source) => source.state === 'HEALTHY' && source.capability !== '*').length
+    : 0;
+  return (
+    <Section title="資料來源" hint="每個供應商功能最近一次請求的結果，有問題的排在最前面。">
+      {report.sources.length === 0 ? (
+        <p className="empty">尚未對任何來源發出請求。執行 npm run probe 可量測目前的額度與權限。</p>
+      ) : (
+        <>
+          <label className="filter">
+            <input
+              type="checkbox"
+              checked={onlyIssues}
+              onChange={(event) => {
+                setOnlyIssues(event.target.checked);
+                writeOnlyIssues(event.target.checked);
+              }}
+            />
+            只看異常{hidden > 0 ? `（已隱藏 ${hidden} 個正常的功能）` : ''}
+          </label>
+          {groups.length === 0 ? (
+            <p className="empty">所有來源都正常。</p>
+          ) : (
+            <table className="sources">
+              <thead>
+                <tr>
+                  <th>功能</th>
+                  <th>狀態</th>
+                  <th>最近結果</th>
+                  <th>額度桶</th>
+                  <th>暫停到</th>
+                  <th>最近成功</th>
+                </tr>
+              </thead>
+              {groups.map((group) => (
+                <tbody key={group.provider}>
+                  <tr className="group-row">
+                    <th colSpan={6} scope="rowgroup">
+                      <span className={`dot dot-${group.worst}`} aria-hidden="true" />
+                      {group.provider}
+                      <span className="group-summary">{groupSummary(group)}</span>
+                    </th>
+                  </tr>
+                  {group.rows.map((source) => (
+                    <tr key={`${source.provider}/${source.capability}`}>
+                      <td>{source.capability === '*' ? '全部功能（共用的 rate limit）' : source.capability}</td>
+                      <td>
+                        <Badge tone={sourceTone(source.state)}>{source.state}</Badge>
+                      </td>
+                      <td className="result">{lastResult(source)}</td>
+                      <td title={source.quota_bucket === null ? '沒有月額度' : undefined}>{bucketUsage(source, report.quota)}</td>
+                      <td>
+                        <Ago iso={stillBlocked(source.blocked_until, now) ? source.blocked_until : null} now={now} />
+                      </td>
+                      <td>
+                        <Ago iso={source.last_success_at} now={now} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
+          )}
+        </>
+      )}
+    </Section>
+  );
 }
 
 const FINDING_LABELS: Record<HealthReport['findings'][number]['code'], string> = {
@@ -235,49 +334,7 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
         )}
       </Section>
 
-      <Section title="資料來源" hint="每個供應商功能最近一次請求的結果。">
-        {report.sources.length === 0 ? (
-          <p className="empty">尚未對任何來源發出請求。執行 npm run probe 可量測目前的額度與權限。</p>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>供應商</th>
-                <th>功能</th>
-                <th>狀態</th>
-                <th>最近結果</th>
-                <th>暫停至</th>
-                <th>最近成功</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.sources.map((source) => (
-                <tr key={`${source.provider}/${source.capability}`}>
-                  <td>{source.provider}</td>
-                  <td>{source.capability === '*' ? '全部功能（共用的 rate limit）' : source.capability}</td>
-                  <td>
-                    <Badge tone={sourceTone(source.state)}>{source.state}</Badge>
-                  </td>
-                  <td>
-                    {source.last_outcome}
-                    {source.last_http_status !== null || source.last_error_class !== null
-                      ? `（${[source.last_http_status !== null ? `HTTP ${source.last_http_status}` : null, source.last_error_class]
-                          .filter(Boolean)
-                          .join(' · ')}）`
-                      : ''}
-                  </td>
-                  <td>
-                    <Ago iso={stillBlocked(source.blocked_until, now) ? source.blocked_until : null} now={now} />
-                  </td>
-                  <td>
-                    <Ago iso={source.last_success_at} now={now} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Section>
+      <SourcesSection report={report} now={now} />
 
       <Section title="額度" hint="本月用量。到達硬性上限後系統自行停止請求，不付費、不換帳號。">
         <table>

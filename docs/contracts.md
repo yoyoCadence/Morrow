@@ -37,7 +37,7 @@
 | Strategy | 未定義 | M3 |
 | ExecutionAttempt | 未定義 | M6（未授權，實盤專用） |
 
-另外有幾個藍圖沒有獨立列出、但 M0 需要的契約：`Observed<T>`、`Provenance`、`OperatingMode`、`RequestOutcome`、`SourceState`、`HealthReport`。`HealthReport` 的整體狀態分四級（`ok`／`attention`／`degraded`／`critical`），每個原因是一筆 `HealthFinding`；session 帶有推導出來的 `liveness`。
+另外有幾個藍圖沒有獨立列出、但 M0 需要的契約：`Observed<T>`、`Provenance`、`OperatingMode`、`RequestOutcome`、`SourceState`、`HealthReport`。`HealthReport` 的整體狀態分四級（`ok`／`attention`／`degraded`／`critical`），每個原因是一筆 `HealthFinding`；session 帶有推導出來的 `liveness`。每個來源列帶有 `last_error_class`（最近一次失敗的機器可讀原因）與 `quota_bucket`（這個功能消耗哪個月額度桶，由 provider registry 決定；沒有月額度或是 `*` 列時為 null）。
 
 ## Observed\<T\>
 

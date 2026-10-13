@@ -355,3 +355,44 @@ meter {
   width: 120px;
   vertical-align: middle;
 }
+
+/* Data sources: grouped by provider, problems first. */
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.sources .group-row th {
+  padding-top: 14px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.sources tbody:first-of-type .group-row th {
+  padding-top: 6px;
+}
+
+.sources .group-row .dot {
+  display: inline-block;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.group-summary {
+  margin-left: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+/* An error class can be long; let it wrap instead of pushing the time columns out of view. */
+.sources td.result {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 12em;
+}
