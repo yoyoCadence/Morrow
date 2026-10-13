@@ -223,6 +223,11 @@ test('only OKX reads an envelope', () => {
   }
 });
 
+test('providers whose limit belongs to the key are paused as a whole', () => {
+  const scopes = Object.fromEntries(Object.values(PROVIDERS).map((provider) => [provider.id, provider.rateLimitScope]));
+  assert.deepEqual(scopes, { jupiter: 'provider', dexscreener: 'capability', okx: 'provider', helius: 'provider' });
+});
+
 test('no capability asks a provider for a transaction', () => {
   // With `taker`, Jupiter assembles a transaction for that wallet to sign.
   // This build has no signer and must only ever ask for a quote.

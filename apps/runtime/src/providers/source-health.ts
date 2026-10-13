@@ -2,6 +2,13 @@ import type { RequestOutcome, SourceHealthView, SourceState } from '@morrow/core
 import type { Queryable } from '../db/pool.js';
 import type { RequestReason } from '../db/raw-store.js';
 
+/**
+ * The capability name under which a provider-wide rate limit is recorded, for
+ * providers whose limit is shared by every endpoint. Only RATE_LIMITED and
+ * HEALTHY are ever stored under it.
+ */
+export const PROVIDER_WIDE = '*';
+
 export interface SourceHealth {
   readonly state: SourceState;
   readonly lastOutcome: RequestOutcome;

@@ -66,7 +66,7 @@ API 只讀資料庫，不呼叫供應商。**所有對外的供應商請求都�
 
 | 情況 | 結果 | 後續行為 |
 |---|---|---|
-| HTTP 429 | `RATE_LIMITED` | 依 `Retry-After` 暫停，至少 30 秒、至多 15 分鐘 |
+| HTTP 429 | `RATE_LIMITED` | 依 `Retry-After` 暫停，至少 30 秒、至多 15 分鐘。限制屬於整個金鑰的供應商（`rateLimitScope: 'provider'`：Jupiter、Helius，以及尚未確認的 OKX），暫停該供應商的所有功能，記錄在 capability 為 `*` 的 `source_health` 列；DEX Screener 依端點限流，只暫停被限流的功能 |
 | HTTP 402 | `PAYMENT_REQUIRED` | 保存回應內容；停止自動請求。永不付款、不換帳號 |
 | HTTP 401／403 | `UNAUTHORIZED` | 停止自動請求，等人修正憑證後以 probe 重測 |
 | 憑證驗證失敗 | `TLS_UNTRUSTED` | 視為來源不可用。不會關閉 TLS 驗證，也不會信任攔截者的憑證 |

@@ -9,7 +9,15 @@ import { parserFor } from '../parsers/registry.js';
 import { findQuotaPolicy, reserveQuota } from '../quota/quota-ledger.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
 import { PROVIDERS } from './registry.js';
-import { nextHealth, readSourceHealth, shouldSuppress, writeSourceHealth, type OutcomeInfo } from './source-health.js';
+import {
+  nextHealth,
+  PROVIDER_WIDE,
+  readSourceHealth,
+  shouldSuppress,
+  writeSourceHealth,
+  type OutcomeInfo,
+  type SourceHealth,
+} from './source-health.js';
 import {
   publicUrl,
   type AuthorizedRequest,
@@ -167,6 +175,11 @@ export class ProviderClient {
     if (shouldSuppress(health, reason, startedAt)) {
       return notSent('SUPPRESSED', `source is ${health?.state ?? 'blocked'}`);
     }
+    // A limit shared by every endpoint: a 429 anywhere pauses this one too.
+    const shared = provider.rateLimitScope === 'provider' ? await readSourceHealth(pool, provider.id, PROVIDER_WIDE) : null;
+    if (shouldSuppress(shared, reason, startedAt)) {
+      return notSent('SUPPRESSED', `${provider.id} is rate limited across all capabilities`);
+    }
 
     const authorized = provider.authorize(spec, credentials, startedAt);
     if (!authorized) {
@@ -219,6 +232,8 @@ export class ProviderClient {
       });
       const next = nextHealth(health, attempt.info, observedAt);
       if (next) await writeSourceHealth(tx, provider.id, capability.capability, next, raw.id);
+      const nextShared = nextSharedHealth(provider, shared, attempt.info, observedAt);
+      if (nextShared) await writeSourceHealth(tx, provider.id, PROVIDER_WIDE, nextShared, raw.id);
       // Evidence and the parsing it calls for commit together, so neither exists without the other.
       const parser = attempt.info.outcome === 'OK' ? parserFor(provider.id, capability.capability) : null;
       if (parser) await enqueueParse(tx, raw.id, parser);
@@ -280,6 +295,23 @@ export class ProviderClient {
       return failed(classified.outcome, classified.errorClass, this.#options.redact(classified.message));
     }
   }
+}
+
+/**
+ * The provider-wide record follows rate limits only: a 429 sets or extends
+ * it, and a success after one clears it. Other outcomes are about one
+ * capability and leave it alone.
+ */
+function nextSharedHealth(
+  provider: ProviderDefinition,
+  shared: SourceHealth | null,
+  info: OutcomeInfo,
+  now: Date,
+): SourceHealth | null {
+  if (provider.rateLimitScope !== 'provider') return null;
+  if (info.outcome === 'RATE_LIMITED') return nextHealth(shared, info, now);
+  if (info.outcome === 'OK' && shared !== null && shared.state !== 'HEALTHY') return nextHealth(shared, info, now);
+  return null;
 }
 
 function failed(outcome: RequestOutcome, errorClass: string, errorDetail: string): Attempt {

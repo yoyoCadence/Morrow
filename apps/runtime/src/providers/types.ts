@@ -44,6 +44,12 @@ export interface ProviderDefinition {
   /** Minimum spacing between requests, enforced in-process by the worker. */
   readonly minIntervalMs: number;
   /**
+   * What a rate limit applies to. `provider`: the limit is shared by every
+   * endpoint (for example per API key), so a 429 from one capability pauses
+   * them all. `capability`: each endpoint has its own limit.
+   */
+  readonly rateLimitScope: 'provider' | 'capability';
+  /**
    * True when the provider has a monthly allowance. Every call to a metered
    * provider must name the quota bucket it draws from.
    */
