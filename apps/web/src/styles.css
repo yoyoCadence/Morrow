@@ -11,6 +11,7 @@
   --bad: #b3261e;
   --bad-bg: #fbe4e2;
   --neutral-bg: #e9ecef;
+  --focus: #1a5fb4;
 
   font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft JhengHei', sans-serif;
   font-size: 15px;
@@ -33,6 +34,7 @@
     --bad: #ff8f87;
     --bad-bg: #42191a;
     --neutral-bg: #2a3036;
+    --focus: #78aeed;
   }
 }
 
@@ -570,8 +572,9 @@ tbody tr:last-child td {
     text-align: right;
   }
 
+  /* The label is shown, not read: the column header already names the cell for screen readers. */
   .responsive td::before {
-    content: attr(data-label);
+    content: attr(data-label) / "";
     flex: none;
     color: var(--muted);
     font-size: 13px;
@@ -616,9 +619,52 @@ tbody tr:last-child td {
     display: inline;
   }
 
-  /* A card line with nothing to say (no backoff, no monthly quota) is left out; the wide table keeps its dash. */
+  /*
+   * A card line with nothing to say (no backoff, no monthly quota) is left
+   * out of view; the wide table keeps its dash. Visually hidden rather than
+   * removed, so every row keeps all its cells for screen readers.
+   */
   .responsive td.wide-only,
   .responsive td.is-empty {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
+
+/* For screen readers only: table captions and the like. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A clear keyboard focus ring, in both themes. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Stripes on unexpected coverage gaps, and the same in the legend. */
+.cov-hatch-line {
+  fill: var(--bad-bg);
+  opacity: 0.7;
+}
+
+.swatch.cov-abnormal {
+  background: repeating-linear-gradient(-55deg, var(--bad) 0 3px, var(--bad-bg) 3px 5px);
+}
+
+/*
+ * Motion: nothing on this page animates or transitions, so it already suits
+ * prefers-reduced-motion. Any motion added later goes inside
+ * @media (prefers-reduced-motion: no-preference), so it is opt-in by default.
+ */
+

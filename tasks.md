@@ -71,7 +71,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 依賴 RV-01／RV-03 提供的欄位。設計原則：這是操作工具，不是交易終端；視覺先回答「能不能相信這個畫面」，不做會誘發追高的動態效果（審查 §6）。
 
-- [ ] **UI-08 無障礙**（P2）— 表格 caption、清楚的焦點樣式、`prefers-reduced-motion`、狀態不只靠顏色表達。
 - [ ] **UI-09 前端測試**（P2，需 RV-05）— 狀態判斷抽成純函式並以 `node:test` 測試；CI 加一個 Playwright 冒煙測試（亮色、深色、390 px）。
 - [ ] **UI-10 導覽骨架**（P2，需 FT-01 或 FT-02）— 第一個真正的頁面出現時再加分頁（系統／市場快照／證據／Paper／研究），不先做空分頁。
 
@@ -125,3 +124,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **UI-05 觀測覆蓋帶**（P1）— 近 24 小時與 7 天的時間軸，標出觀測中與缺口，附覆蓋率百分比。需要 API 提供時間範圍內的 session 與 gap。實作：新增唯讀端點 `GET /api/coverage?hours=24|168` 與契約 `CoverageReport`；`api/coverage.ts` 的 `coverageSegments`（純函式）把 worker 的 session 與 `session_gaps` 換算成連續的區段，未觀測的每一段都有原因（`OFFLINE`、`UNCLEAN_SHUTDOWN`、`HEARTBEAT_STALL`、`HEARTBEAT_LOST`、`MODE_OFF`、`NO_RECORD`）；重新啟動時兩次讀取時鐘造成、短於 1 秒的縫隙併入前一段（資料庫測試先重現了這個縫隙）。儀表板以 SVG 畫近 24 小時與 7 天兩條，每段有 tooltip，寫出覆蓋率（無條件捨去）與各原因的總時間；每分鐘更新一次，與健康報告分開。（2026-10-13）
 - [x] **UI-07 輪詢穩健性**（P1；U8）— 請求逾時與取消、不重疊、分頁在背景時暫停、以 `HealthReport` schema 驗證回應以發現契約漂移。實作：`apps/web/src/poll.ts`：`fetchChecked` 每個請求 15 秒逾時、元件卸載時取消，回應以共用契約的 zod schema（`HealthReport`、`CoverageReport`）驗證，不符時是錯誤而不是畫出來；`startPolling` 在上一次完成後才排下一次，所以不會重疊，分頁回到前景時立刻更新。與任務文字的差異：背景時**放慢**而不是暫停（健康 60 秒、覆蓋 5 分鐘），因為 UI-02 的分頁標題與 favicon 就是要在別的分頁時顯示狀態；瀏覽器本來也會把背景計時器限制到約每分鐘一次。契約不符時提示「儀表板與 API 不是同一個版本」，附上第一個不符的欄位，並說明要重新建置與重新啟動 API。先於 UI-06 處理：P1，且影響畫面能不能被相信。（2026-10-13）
 - [x] **UI-06 窄螢幕版面**（P2；U3）— 640 px 以下表格改為卡片清單，狀態放在第一行。實作：只用 CSS，表格仍是同一份 markup：每個儲存格有 `data-label`，640 px 以下每列變成一張卡片，第一行是這一列在講什麼（`cell-primary`：元件、功能、供應商與額度桶）與狀態（`cell-status`），其餘是「標籤　值」。套用在程序、觀測缺口、資料來源、額度四張表；沒有內容的行（沒有退避、沒有月額度）在卡片裡省略，寬版仍顯示「—」。表頭在畫面上隱藏但留給螢幕閱讀器。Playwright 驗證 390、640、1280 px 下頁面與每張卡片都沒有橫向捲動，亮色與深色都截圖確認；1280 px 版面不變。（2026-10-14）
+- [x] **UI-08 無障礙**（P2）— 表格 caption、清楚的焦點樣式、`prefers-reduced-motion`、狀態不只靠顏色表達。實作：先以瀏覽器的無障礙樹量測，再修正量到的問題：表頭原本被當成一般的 cell（補上 `scope="col"`，24 個 columnheader）；4 張表都有只給螢幕閱讀器的 caption；窄版卡片裡的標籤原本被讀進每一格（改用 `content: attr(data-label) / ""`）；窄版省略的空行原本從無障礙樹消失，每列的格數不一致（改為只在視覺上隱藏，1280 與 390 px 都是 127 格）；鍵盤焦點有清楚的外框（兩種主題都有 `--focus` 色）；覆蓋帶的「非預期中斷」加上斜紋，不只靠紅與綠區分，圖例同步。頁面沒有任何動畫或轉場，所以 `prefers-reduced-motion` 本來就符合；之後加入的動畫一律放在 `prefers-reduced-motion: no-preference` 裡。UI-06 擔心的「卡片版面失去表格語意」實測沒有發生（Chromium 保留了 table 角色）。（2026-10-14）
