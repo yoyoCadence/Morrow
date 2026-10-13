@@ -65,7 +65,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 ### 審查發現 — M2 之前完成
 
 - [ ] **RV-11b 一次性全域格式化**（P2；**需操作人決定**）— 以 `biome.json` 的設定執行 `npm run format`，之後在 CI 強制 `biome format`。實測會改寫 31 個檔案、約 +605／−228 行（行寬 120–160 都在 30 個檔案以上），所以 AGENTS.md §2 規定要先取得同意。做的話應該是一個只含格式化的 PR，並把該 commit 加入 `.git-blame-ignore-revs`。
-- [ ] **RV-12 Worker 的兩條隊伍與租約續租**（P1；D2、D3）— 同一個 worker 程序內分成「供應商請求」與「本機運算（parse 等）」兩個迴圈，節流器仍只有一份；長時間的 job 定期續租。完成測試：慢速供應商不會延遲 parse job；長 job 不會被重新派發。
 - [ ] **RV-13 儲存策略**（P1；D4、D5）— 先量測（FT-07），再決定：quarantine 是否改為每個 observation 一筆彙總、或只記錄新出現的原因；raw payload 與事件的保留期限；`jobs`、`consumer_inbox` 的清理。決策寫成 ADR。完成測試：依決策的保留規則不會刪到 replay 需要的證據。
 
 ### UI 改善
@@ -125,3 +124,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **RV-11 Lint 與 format**（P2）— 加入 Biome（單一 dev 相依），先只格式化，再逐步開規則；與 RV-05 一起在 CI 執行。實作：Biome 2.5.15（dev 相依，不需 install script）只作 linter，在 CI 執行；recommended 規則，關掉純風格的 `useLiteralKeys`（對不可信 JSON 刻意用方括號存取）與 `useTemplate`；修正 3 個實際問題。Formatter 已設定但不強制，因為全域格式化要先取得同意，見 RV-11b。（2026-10-13）
 - [x] **RV-14 開發相依的弱點**（P2）— `source-map-js@1.2.1`（經 vite → postcss，只在建置時使用）升級到修正版，遵守 `.npmrc` 的 `min-release-age`。實作：只更新 lockfile，`source-map-js` 1.2.1 → 1.2.2（2026-09-30 發布，postcss 的 `^1.2.1` 範圍內）；`npm audit` 為 0。（2026-10-13）
 - [x] **RV-15 API 請求日誌**（P2；U9）— Health 輪詢不要每次寫 2 行 info 日誌（開著分頁每天約 1.7 萬行）；錯誤與非 GET 請求照常記錄。實作：Fastify 的 `logController`（`apps/runtime/src/api/request-log.ts`）把每個請求改為完成時寫一行，含 method、url、host、狀態碼與回應時間；成功的 GET／HEAD 記 debug（預設看不到，`MORROW_LOG_LEVEL=debug` 才顯示），Host／Origin 被拒（403）記 warn，其他 4xx 與所有非讀取請求記 info，5xx 記 error。（2026-10-13）
+- [x] **RV-12 Worker 的兩條隊伍與租約續租**（P1；D2、D3）— 同一個 worker 程序內分成「供應商請求」與「本機運算（parse 等）」兩個迴圈，節流器仍只有一份；長時間的 job 定期續租。完成測試：慢速供應商不會延遲 parse job；長 job 不會被重新派發。實作：worker 程序內 `local`（`raw.parse`，列在 `LOCAL_JOB_KINDS`）與 `network`（其他所有種類）兩個 `JobWorker` 迴圈，各自一次一個；沒有宣告為本機的種類一律走 `network`，避免新的供應商 job 意外與其他供應商請求並行。執行中的 job 每三分之一租約以 `renewLease` 續租，停止續租並等待進行中的續租完成之後才標記完成。續租同時修正了分成兩條隊伍才會出現的問題：最後一次嘗試的 job（例如 `maxAttempts: 1` 的 probe）超過租約時，另一條隊伍的輪詢會把仍在執行的 job 標記為 dead。Lease 遺失時目前只記錄，不會中斷 handler。（2026-10-13）

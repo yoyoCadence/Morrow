@@ -142,7 +142,29 @@ export function defaultHandlers(deps: ProcessDeps, getSessionId: () => string): 
   return handlers;
 }
 
-/** Starts the background worker: the job loop and, through it, all provider access. */
+/**
+ * Job kinds that only read and write the local database. They run in the
+ * local lane, so a slow provider never delays them. Every other kind runs in
+ * the network lane, one job at a time behind the shared rate limiter. The
+ * list is explicit so that a new kind that might contact a provider is never
+ * run beside provider jobs by accident.
+ */
+export const LOCAL_JOB_KINDS: ReadonlySet<string> = new Set([PARSE_JOB_KIND]);
+
+export type WorkerLane = 'local' | 'network';
+
+/** Splits handlers by lane, using `LOCAL_JOB_KINDS`. */
+export function laneHandlers(handlers: ReadonlyMap<string, JobHandler>): Record<WorkerLane, Map<string, JobHandler>> {
+  const lanes: Record<WorkerLane, Map<string, JobHandler>> = { local: new Map(), network: new Map() };
+  for (const [kind, handler] of handlers) lanes[LOCAL_JOB_KINDS.has(kind) ? 'local' : 'network'].set(kind, handler);
+  return lanes;
+}
+
+/**
+ * Starts the background worker: the job loops and, through them, all
+ * provider access. Each lane is its own loop that runs one job at a time, so
+ * provider requests stay serial while local work proceeds beside them.
+ */
 export async function startWorkerProcess(
   deps: ProcessDeps & {
     /** Replaces the default handlers. Tests use this to stay off the network. */
@@ -156,17 +178,27 @@ export async function startWorkerProcess(
     appVersion: APP_VERSION,
   });
 
-  const handlers = deps.handlers ?? defaultHandlers(deps, () => sessionId);
-  const worker = new JobWorker({
-    pool: deps.pool,
-    logger: deps.logger,
-    workerId: `worker:${sessionId}`,
-    handlers,
-    redact: deps.redact,
-  });
-  worker.start();
+  const lanes = laneHandlers(deps.handlers ?? defaultHandlers(deps, () => sessionId));
+  const workers = (Object.entries(lanes) as [WorkerLane, Map<string, JobHandler>][])
+    .filter(([, handlers]) => handlers.size > 0)
+    .map(
+      ([lane, handlers]) =>
+        new JobWorker({
+          pool: deps.pool,
+          logger: deps.logger.child({ lane }),
+          workerId: `worker:${sessionId}:${lane}`,
+          handlers,
+          redact: deps.redact,
+        }),
+    );
+  for (const worker of workers) worker.start();
   deps.logger.info(
-    { mode: deps.config.mode, sessionId, jobKinds: [...handlers.keys()], previousGap: gap?.kind ?? null },
+    {
+      mode: deps.config.mode,
+      sessionId,
+      lanes: { local: [...lanes.local.keys()], network: [...lanes.network.keys()] },
+      previousGap: gap?.kind ?? null,
+    },
     'worker started',
   );
   if (gap) {
@@ -175,5 +207,7 @@ export async function startWorkerProcess(
       'nothing was observed during this interval; it is recorded as a coverage gap',
     );
   }
-  return supervise(deps, 'worker', sessionId, () => worker.stop());
+  return supervise(deps, 'worker', sessionId, async () => {
+    await Promise.all(workers.map((worker) => worker.stop()));
+  });
 }

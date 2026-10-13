@@ -3,7 +3,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { withTransaction } from '../db/pool.js';
 import { sha256Hex, storeRawObservation } from '../db/raw-store.js';
 import { createRedactor } from '../logging/redact.js';
-import { createTestDb, silentLogger, type TestDb } from '../test-support/db.js';
+import { capturingLogger, createTestDb, silentLogger, type TestDb } from '../test-support/db.js';
 import { claimJob, completeJob, countJobs, enqueueJob, failJob, getJobState, markProcessed } from './job-queue.js';
 import { defaultRetryDelayMs, JobWorker, sleep, type JobHandler } from './worker.js';
 
@@ -279,6 +279,96 @@ test('the worker loop drains the queue and stop() waits for the job in flight', 
   await stopping;
   assert.equal(finished, 1);
   assert.deepEqual(await countJobs(db.pool), { queued: 0, leased: 0, dead: 0 });
+});
+
+/** A handler that blocks until `release` is called. */
+function gated(): { handler: JobHandler; release: () => void; runs: () => number } {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let runs = 0;
+  return {
+    handler: async () => {
+      runs += 1;
+      await gate;
+    },
+    release: () => release(),
+    runs: () => runs,
+  };
+}
+
+async function waitForStatus(jobId: string, status: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while ((await getJobState(db.pool, jobId))?.status !== status) {
+    if (Date.now() > deadline) throw new Error(`job ${jobId} did not reach ${status}`);
+    await sleep(10);
+  }
+}
+
+test('a running job renews its lease, so it is neither handed out again nor declared dead', async () => {
+  // maxAttempts 1: without renewal, any poll after the lease runs out declares the job dead while it runs.
+  // maxAttempts 2: without renewal, another worker claims it and runs it a second time.
+  for (const maxAttempts of [1, 2]) {
+    const { jobId } = await enqueueJob(db.pool, { kind: 'test.work', maxAttempts });
+    const slow = gated();
+    const w = new JobWorker({
+      pool: db.pool,
+      logger: silentLogger,
+      workerId: 'w-long',
+      handlers: new Map([['test.work', slow.handler]]),
+      redact: (text) => text,
+      leaseMs: 600,
+    });
+    const running = w.runOnce();
+    try {
+      await waitForStatus(jobId, 'leased');
+      // Poll as another worker would, for more than two lease lengths.
+      const until = Date.now() + 1_500;
+      while (Date.now() < until) {
+        assert.equal(await claim('w-other', 600), null, `maxAttempts ${maxAttempts}: nobody else gets the job`);
+        assert.equal((await getJobState(db.pool, jobId))?.status, 'leased', `maxAttempts ${maxAttempts}: still running`);
+        await sleep(50);
+      }
+    } finally {
+      // Also on failure: the job in flight keeps renewing until it finishes.
+      slow.release();
+    }
+    assert.equal(await running, true);
+    assert.equal(slow.runs(), 1);
+    assert.equal((await getJobState(db.pool, jobId))?.status, 'succeeded');
+  }
+});
+
+test('a worker whose lease was taken over says so and does not count the job as its own', async () => {
+  const { logger, output } = capturingLogger((text) => text);
+  const { jobId } = await enqueueJob(db.pool, { kind: 'test.work' });
+  const slow = gated();
+  const w = new JobWorker({
+    pool: db.pool,
+    logger,
+    workerId: 'w-frozen',
+    handlers: new Map([['test.work', slow.handler]]),
+    redact: (text) => text,
+    leaseMs: 300,
+  });
+  const running = w.runOnce();
+  try {
+    await waitForStatus(jobId, 'leased');
+    // As if the lease had run out while this worker was frozen, and another worker took the job.
+    await db.pool.query("UPDATE jobs SET lease_owner = 'w-new' WHERE id = $1", [jobId]);
+    // The next renewal, a third of the lease later, finds the lease gone.
+    const deadline = Date.now() + 5_000;
+    while (!/lease lost while the job was running/.test(output()) && Date.now() < deadline) await sleep(10);
+  } finally {
+    slow.release();
+  }
+  await running;
+
+  assert.match(output(), /lease lost while the job was running/);
+  assert.match(output(), /job finished but its lease had been lost/);
+  const row = await db.pool.query<{ status: string; lease_owner: string }>('SELECT status, lease_owner FROM jobs WHERE id = $1', [jobId]);
+  assert.deepEqual(row.rows[0], { status: 'leased', lease_owner: 'w-new' }, 'the new holder keeps the job');
 });
 
 test('retry delays grow and are capped', () => {
