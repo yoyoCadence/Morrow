@@ -652,7 +652,11 @@ tbody tr:last-child td {
   border-radius: 2px;
 }
 
-/* Stripes on unexpected coverage gaps, and the same in the legend. */
+/* Stripes on unexpected coverage gaps, and the same in the legend. The stripes let the pointer through to the gap below. */
+.cov-hatch {
+  pointer-events: none;
+}
+
 .cov-hatch-line {
   fill: var(--bad-bg);
   opacity: 0.7;

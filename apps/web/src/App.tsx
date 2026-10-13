@@ -100,10 +100,10 @@ function CoverageBand({ title, report }: { title: string; report: CoverageReport
   const rect = (key: string, item: (typeof placed)[number], x: number, width: number) => {
     const kind = coverageKind(item.segment.reason);
     return (
+      // The title sits on the group, so either rectangle under the pointer shows this segment's tooltip.
       <g key={key}>
-        <rect className={`cov-${kind}`} x={x} y={0} width={width} height={14}>
-          <title>{item.label}</title>
-        </rect>
+        <title>{item.label}</title>
+        <rect className={`cov-${kind}`} x={x} y={0} width={width} height={14} />
         {kind === 'abnormal' ? <rect className="cov-hatch" x={x} y={0} width={width} height={14} fill={`url(#${hatchId})`} /> : null}
       </g>
     );
