@@ -1,0 +1,15 @@
+{
+  // The dashboard's pure modules and their tests, compiled for node:test.
+  // Vite bundles the page from tsconfig.json; this build is never served.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist-test"
+  },
+  "include": ["src/**/*.test.ts"],
+  "exclude": []
+}

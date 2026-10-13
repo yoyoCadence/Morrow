@@ -53,6 +53,13 @@ jobs:
       - run: npm run lint
       - run: npm run build
       - run: npm test
+      # The dashboard smoke test drives a real browser. Playwright downloads the
+      # Chromium build that matches its pinned version; --with-deps installs the
+      # system libraries it needs through apt.
+      - name: Install Chromium for the dashboard smoke test
+        run: npx playwright install --with-deps --only-shell chromium
+      - name: Dashboard smoke test
+        run: npm run test:e2e
       - name: Migration smoke check
         env:
           MORROW_DATABASE_URL: postgres://morrow@127.0.0.1:5432/morrow_test

@@ -1,6 +1,7 @@
 import type { HealthReport } from '@morrow/core';
-import { sourceTone } from './sources';
-import { formatRelative } from './time';
+import { usedPercent } from './quota.js';
+import { sourceTone } from './sources.js';
+import { formatRelative } from './time.js';
 
 export type Tone = 'good' | 'warn' | 'bad' | 'critical' | 'neutral';
 
@@ -60,8 +61,7 @@ function quotaIndicator(report: HealthReport): Indicator {
   }
   if (highest === null) return { key: 'quota', tone: 'neutral', text: '額度 —' };
   const tone: Tone = highest.state === 'HARD_STOP' ? 'bad' : highest.state === 'WARN' ? 'warn' : 'good';
-  // Rounded down: 99.6% of the hard stop is not yet 100%.
-  const percent = Math.floor(highestShare * 100);
+  const percent = usedPercent(highest.used, highest.hard_stop_at);
   return { key: 'quota', tone, text: `額度 最高 ${percent}%（${highest.provider}/${highest.bucket}）` };
 }
 

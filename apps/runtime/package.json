@@ -13,6 +13,7 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/pg": "8.23.1"
+    "@types/pg": "8.23.1",
+    "playwright": "1.63.0"
   }
 }

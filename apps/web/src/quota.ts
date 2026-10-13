@@ -4,6 +4,16 @@ type Bucket = HealthReport['quota'][number];
 
 const DAY_MS = 86_400_000;
 
+/**
+ * How much of the hard stop is used, in whole percent, rounded down: 99.6%
+ * is not yet 100%. Multiplied before dividing, so an exact share stays
+ * exact (24,650 of 85,000 is 29%; dividing first gives 28.999…, shown as 28%).
+ * A bucket without a hard stop counts as fully used.
+ */
+export function usedPercent(used: number, hardStopAt: number): number {
+  return hardStopAt > 0 ? Math.floor((used * 100) / hardStopAt) : 100;
+}
+
 /** A rate measured over less than this says more about one burst than about the month. */
 export const MIN_PROJECTION_MS = DAY_MS;
 

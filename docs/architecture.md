@@ -22,7 +22,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 |---|---|---|
 | `packages/core` | 契約（zod schema 與型別）、與供應商無關的純邏輯 | 任何 I/O；任何供應商專屬的型別 |
 | `apps/runtime` | 設定、日誌、資料庫、jobs、執行階段、額度、供應商客戶端、API、CLI | 交易、簽署 |
-| `apps/web` | Dashboard。只 `import type` core 的型別 | 直接連供應商或資料庫 |
+| `apps/web` | Dashboard。以 core 的 schema 驗證 API 的回應；zod 設為 `jitless`，因為 API 的 CSP 不允許 eval | 直接連供應商或資料庫 |
 
 `apps/runtime/src` 的模組：
 

@@ -19,6 +19,8 @@ const EnvSchema = z.strictObject({
   MORROW_DATABASE_URL: z.string().min(1),
   /** Used only by the test suite. Listed here so a shared .env passes validation. */
   MORROW_TEST_DATABASE_URL: z.string().min(1).optional(),
+  /** Used only by the dashboard smoke test: a Chromium or Chrome to run instead of Playwright's own download. */
+  MORROW_E2E_CHROMIUM: z.string().min(1).optional(),
   MORROW_API_PORT: z.coerce.number().int().min(1024).max(65535).default(8787),
   MORROW_LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
   MORROW_JUPITER_API_KEY: Secret.optional(),

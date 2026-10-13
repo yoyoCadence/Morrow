@@ -86,6 +86,15 @@ test('every secret is collected for redaction, including the database password',
   );
 });
 
+test('the test-only settings pass validation, so a shared .env still starts the runtime', () => {
+  const config = loadConfig({
+    ...base,
+    MORROW_TEST_DATABASE_URL: 'postgres://morrow:testPassw0rdValue@127.0.0.1:54317/morrow_test',
+    MORROW_E2E_CHROMIUM: '/usr/bin/chromium',
+  });
+  assert.equal(config.mode, 'OFF');
+});
+
 test('validation messages never contain a credential value', () => {
   const tooShort = 'zQ9!x';
   const problems = problemsOf({ ...base, MORROW_HELIUS_API_KEY: tooShort, MORROW_API_PORT: 'eighty' });
