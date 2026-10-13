@@ -104,6 +104,22 @@ export async function claimJob(pool: pg.Pool, options: ClaimOptions): Promise<Cl
 }
 
 /**
+ * Extends a lease this worker holds to `leaseMs` from now. Returns false when
+ * it no longer holds it: the lease ran out and the job was claimed again, or
+ * the job is finished.
+ */
+export async function renewLease(db: Queryable, jobId: string, workerId: string, leaseMs: number): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE jobs
+        SET lease_expires_at = clock_timestamp() + make_interval(secs => $3::double precision / 1000),
+            updated_at = clock_timestamp()
+      WHERE id = $1 AND status = 'leased' AND lease_owner = $2`,
+    [jobId, workerId, leaseMs],
+  );
+  return result.rowCount === 1;
+}
+
+/**
  * Marks a job done. Returns false if this worker no longer holds the lease,
  * in which case another worker may be running the job and the caller must not
  * assume its own work counted.

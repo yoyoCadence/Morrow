@@ -158,5 +158,6 @@ Worker 需要能直接連到：
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |
 | `Cannot reach the database (connection timed out)` | 連線 10 秒內沒有建立：PostgreSQL 卡住、機器剛從休眠恢復，或連到了錯的位址 |
 | 日誌出現 `canceling statement due to statement timeout` | 某個語句超過 30 秒（或心跳超過 5 秒），通常是在等 lock。看看是否有其他連線開著很久的 transaction |
+| 日誌出現 `lease lost while the job was running` | 執行中的 job 沒能續租，租約到期後被別的 worker 取走（或已結束）。通常是 worker 凍結、機器休眠，或資料庫長時間連不上。原本的 worker 做完時不會把它記為成功；job 會由新的持有者再執行一次，所以 handler 必須可以安全地重複執行 |
 | `node` 或 `psql` 找不到 | 這個視窗還沒執行 `. .\scripts\dev-env.ps1` |
 | `npm ci` 回報 `EBADENGINE` | PATH 上的 Node 版本不符。執行 `.\scripts\setup-toolchain.ps1`，再 `. .\scripts\dev-env.ps1` |

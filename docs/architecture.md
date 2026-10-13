@@ -47,6 +47,15 @@ API 只讀資料庫，不呼叫供應商。**所有對外的供應商請求都�
 
 每個元件同一時間只能有一個執行階段（`run_sessions` 上的 partial unique index）。這讓 worker 內的節流器具有權威性：既然只有一個 worker，行程內的間隔控制就等於全系統的間隔控制，不需要跨行程協調。第二個 worker 啟動時會被拒絕；若前一個已經當掉（沒有心跳、或 pid 已不存在），新的會接手並記錄缺口。
 
+Worker 程序內有兩條隊伍，各自一次只跑一個 job：
+
+| 隊伍 | Job | 原因 |
+|---|---|---|
+| `network` | 會連線到供應商的 job（目前是 `provider.probe`），以及所有沒有明確宣告為本機的種類 | 供應商請求保持一次一個，經過同一個節流器 |
+| `local` | 只讀寫本機資料庫的 job（目前是 `raw.parse`），列在 `LOCAL_JOB_KINDS` | 不會因為一個 15 秒逾時的供應商請求而延遲 |
+
+新的 job 種類預設屬於 `network`；要放進 `local`，必須確定它不會連線到供應商。
+
 ## 一個供應商請求的路徑
 
 `ProviderClient.request()` 是系統與資料供應商之間唯一的通道，依序執行：
@@ -112,6 +121,7 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 ### 工作佇列的語意
 
 - **At-least-once**。`FOR UPDATE SKIP LOCKED` 讓多個 worker 各拿不同的工作；租約過期的工作會被重新派發。
+- **續租**。租約預設 300 秒，執行中的 job 每三分之一租約續租一次，所以只有停止或凍結的 worker 會失去租約。續租失敗（被別人取走）時記錄 warning；做完時不會把它記為成功。
 - **Transactional outbox**：工作與造成它的資料在同一個 transaction 寫入。Transaction 回滾，工作就不存在；提交了，工作就不會遺失。
 - **冪等**：帶 `dedupe_key` 的工作只會被建立一次。Handler 用 `consumer_inbox` 在同一個 transaction 內記錄「已處理」，所以重送不會重複產生效果。
 - 失敗會延遲重試，次數用完後進入 `dead`。

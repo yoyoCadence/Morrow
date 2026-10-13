@@ -21,7 +21,14 @@ import { PROBE_JOB_KIND } from '../providers/probes.js';
 import { requestStop, SessionConflictError } from '../session/run-session.js';
 import { createTestDb, defer, silentLogger, type TestDb } from '../test-support/db.js';
 import { APP_VERSION } from '../version.js';
-import { defaultHandlers, SchemaNotCurrentError, startApiProcess, startWorkerProcess, type ProcessDeps } from './processes.js';
+import {
+  defaultHandlers,
+  laneHandlers,
+  SchemaNotCurrentError,
+  startApiProcess,
+  startWorkerProcess,
+  type ProcessDeps,
+} from './processes.js';
 
 async function freshDb(t: TestContext, options: { migrate?: boolean } = {}): Promise<TestDb> {
   const db = await createTestDb(options);
@@ -437,6 +444,46 @@ test('only one worker can run at a time', async (t) => {
   defer(t, () => first.stop('test'));
   await assert.rejects(startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers: new Map() }), SessionConflictError);
   assert.equal(await sessionStatus(db, first.sessionId), 'RUNNING');
+});
+
+test('parsing runs in its own lane, so a slow provider job does not delay it', async (t) => {
+  const db = await freshDb(t);
+  assert.deepEqual(
+    Object.fromEntries(Object.entries(laneHandlers(defaultHandlers(deps(db, 'RESEARCH'), () => '1'))).map(([lane, handlers]) => [lane, [...handlers.keys()]])),
+    { local: [PARSE_JOB_KIND], network: [PROBE_JOB_KIND] },
+  );
+  // A kind that is not declared local is treated as one that may contact a provider.
+  assert.deepEqual([...laneHandlers(new Map([['test.unknown', async () => undefined]])).network.keys()], ['test.unknown']);
+
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const parsed: unknown[] = [];
+  const handlers = new Map<string, JobHandler>([
+    // Stands in for a provider request that hangs until its timeout.
+    [PROBE_JOB_KIND, async () => gate],
+    [PARSE_JOB_KIND, async (job) => void parsed.push(job.payload)],
+  ]);
+  const worker = await startWorkerProcess({ ...deps(db, 'RESEARCH'), handlers });
+  defer(t, () => worker.stop('test'));
+  // Cleanup runs in reverse, so this comes first: a failed assertion must not leave stop() waiting on the job.
+  defer(t, () => release());
+
+  const probe = await enqueueJob(db.pool, { kind: PROBE_JOB_KIND });
+  const deadline = Date.now() + 20_000;
+  while ((await getJobState(db.pool, probe.jobId))?.status !== 'leased' && Date.now() < deadline) await sleep(25);
+  assert.equal((await getJobState(db.pool, probe.jobId))?.status, 'leased', 'the provider job is running');
+
+  const parse = await enqueueJob(db.pool, { kind: PARSE_JOB_KIND, payload: { raw_observation_id: '1' } });
+  while ((await getJobState(db.pool, parse.jobId))?.status !== 'succeeded' && Date.now() < deadline) await sleep(25);
+  assert.equal((await getJobState(db.pool, parse.jobId))?.status, 'succeeded', 'parsed while the provider job still runs');
+  assert.equal((await getJobState(db.pool, probe.jobId))?.status, 'leased');
+
+  release();
+  while ((await getJobState(db.pool, probe.jobId))?.status !== 'succeeded' && Date.now() < deadline) await sleep(25);
+  assert.equal((await getJobState(db.pool, probe.jobId))?.status, 'succeeded');
+  assert.deepEqual(parsed, [{ raw_observation_id: '1' }]);
 });
 
 test('OFF mode registers nothing that could contact a provider', async (t) => {
