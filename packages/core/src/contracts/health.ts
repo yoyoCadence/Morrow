@@ -141,6 +141,7 @@ export const HEALTH_FINDING_CODES = [
   'QUOTA_WARN',
   'QUOTA_HARD_STOP',
   'JOBS_DEAD',
+  'EVENT_CONFLICTS',
 ] as const;
 export const HealthFindingCode = z.enum(HEALTH_FINDING_CODES);
 export type HealthFindingCode = z.infer<typeof HealthFindingCode>;
@@ -189,5 +190,7 @@ export const HealthReport = z.strictObject({
     leased: z.number().int().min(0),
     dead: z.number().int().min(0),
   }),
+  /** Contradictions recorded in event_conflicts during the last 24 hours. */
+  recent_event_conflicts: z.number().int().min(0),
 });
 export type HealthReport = z.infer<typeof HealthReport>;

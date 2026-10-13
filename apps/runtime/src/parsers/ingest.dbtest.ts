@@ -58,6 +58,7 @@ test('a stored response becomes events and quarantine rows, once', async () => {
     skipped: null,
     eventsInserted: 1,
     eventsExisting: 0,
+    eventsConflicting: 0,
     quarantined: 8,
   });
 
@@ -114,6 +115,7 @@ test('error responses and capabilities without a parser are not parsed', async (
     skipped: 'NO_PARSER',
     eventsInserted: 0,
     eventsExisting: 0,
+    eventsConflicting: 0,
     quarantined: 0,
   });
 

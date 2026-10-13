@@ -112,7 +112,7 @@ test('appending the same event twice stores it once', async () => {
   const second = await appendEvent(db.pool, event(key));
 
   assert.equal(first.inserted, true);
-  assert.deepEqual(second, { eventId: first.eventId, inserted: false });
+  assert.deepEqual(second, { eventId: first.eventId, inserted: false, conflicting: false });
   const rows = await db.pool.query<{ event_time: Date | null; available_at: Date; subject: string }>(
     'SELECT event_time, available_at, subject FROM events WHERE dedupe_key = $1',
     [key],
@@ -121,6 +121,50 @@ test('appending the same event twice stores it once', async () => {
   assert.equal(rows.rows[0]?.event_time, null, 'a missing source time is not replaced by the fetch time');
   assert.ok(rows.rows[0]?.available_at instanceof Date);
   assert.equal(rows.rows[0]?.subject, MINDS);
+});
+
+test('a different fact under a dedupe key that is taken is kept as a conflict, once', async () => {
+  const key = `test:event:${Math.random()}`;
+  const original = await appendEvent(db.pool, event(key));
+  const conflicts = async () =>
+    (
+      await db.pool.query<{ event_id: string; incoming_event: { payload: unknown; provenance: { evidence_refs: string[] } } }>(
+        'SELECT event_id, incoming_event FROM event_conflicts WHERE dedupe_key = $1 ORDER BY id',
+        [key],
+      )
+    ).rows;
+
+  // The same fact from other evidence is a repeat, not a contradiction.
+  const sameFact = { ...event(key), provenance: { ...event(key).provenance, evidence_refs: ['raw_observation:2'] } };
+  assert.deepEqual(await appendEvent(db.pool, sameFact), { eventId: original.eventId, inserted: false, conflicting: false });
+  assert.deepEqual(await conflicts(), []);
+
+  const contradiction = { ...event(key), payload: { price_usd: '0.0000999' }, provenance: { ...event(key).provenance, evidence_refs: ['raw_observation:3'] } };
+  assert.deepEqual(await appendEvent(db.pool, contradiction), { eventId: original.eventId, inserted: false, conflicting: true });
+  assert.deepEqual(await appendEvent(db.pool, contradiction), { eventId: original.eventId, inserted: false, conflicting: true });
+
+  const recorded = await conflicts();
+  assert.equal(recorded.length, 1, 'a redelivered contradiction is recorded once');
+  assert.equal(recorded[0]?.event_id, original.eventId);
+  assert.deepEqual(recorded[0]?.incoming_event.payload, { price_usd: '0.0000999' });
+  assert.deepEqual(recorded[0]?.incoming_event.provenance.evidence_refs, ['raw_observation:3'], 'the evidence behind it can be found');
+
+  const stored = await db.pool.query<{ payload: unknown }>('SELECT payload FROM events WHERE dedupe_key = $1', [key]);
+  assert.deepEqual(stored.rows.map((row) => row.payload), [{ price_usd: '0.0000123' }], 'the stored event is not replaced');
+});
+
+test('an event stored before facts were hashed cannot be contradicted, so nothing is claimed', async () => {
+  const key = `test:event:${Math.random()}`;
+  await appendEvent(db.pool, event(key));
+  // Simulate a row from before migration 0004, which has no fact hash.
+  await db.pool.query('ALTER TABLE events DISABLE TRIGGER events_append_only');
+  try {
+    await db.pool.query('UPDATE events SET fact_sha256 = NULL WHERE dedupe_key = $1', [key]);
+  } finally {
+    await db.pool.query('ALTER TABLE events ENABLE TRIGGER events_append_only');
+  }
+  const result = await appendEvent(db.pool, { ...event(key), payload: { price_usd: '1' } });
+  assert.deepEqual([result.inserted, result.conflicting], [false, false]);
 });
 
 test('an invalid event is rejected before it reaches the database', async () => {
@@ -147,7 +191,9 @@ test('an event written in a transaction that rolls back does not exist', async (
 test('evidence, events and logs cannot be changed, deleted or truncated', async () => {
   // Make sure every append-only table has a row to attack.
   const raw = await storeRawObservation(db.pool, observation({ body: Buffer.from('append-only') }));
-  await appendEvent(db.pool, event(`test:event:${Math.random()}`));
+  const attacked = `test:event:${Math.random()}`;
+  await appendEvent(db.pool, event(attacked));
+  await appendEvent(db.pool, { ...event(attacked), payload: { price_usd: '2' } });
   await writeAudit(db.pool, { actor: 'test', action: 'test.entry' });
   const session = await db.pool.query<{ id: string }>(
     "INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('api', 'OFF', 'h', 1, 't') RETURNING id",
@@ -181,6 +227,7 @@ test('evidence, events and logs cannot be changed, deleted or truncated', async 
     provider_probes: "outcome = 'OK'",
     audit_log: "actor = 'someone-else'",
     parse_quarantine: "reason = 'OK'",
+    event_conflicts: "dedupe_key = 'x'",
   };
   for (const [table, assignment] of Object.entries(mutations)) {
     const before = await db.pool.query(`SELECT count(*)::int AS n FROM ${table}`);

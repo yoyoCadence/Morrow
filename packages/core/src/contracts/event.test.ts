@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { z } from 'zod';
 import { solanaAssetId } from './asset-id.js';
-import { CanonicalEvent, eventIdFor, NewEvent } from './event.js';
+import { CanonicalEvent, eventFactSha256, eventIdFor, NewEvent } from './event.js';
 import { ENABLED_MODES, ModeNotEnabledError, OPERATING_MODES, requireEnabledMode } from './modes.js';
 import { observedSchema } from './observed.js';
 import { DecimalString, SCHEMA_VERSION, UIntString, UtcTimestamp } from './primitives.js';
@@ -117,4 +117,29 @@ test('Observed values cannot mix a state with the wrong fields', () => {
   assert.equal(schema.safeParse({ state: 'KNOWN' }).success, false);
   assert.equal(schema.safeParse({ state: 'CONFLICTING', candidates: ['1'], reason: 'x' }).success, false, 'a conflict needs two candidates');
   assert.equal(schema.safeParse({ state: 'STALE', value: '1', reason: 'older than 5m' }).success, true);
+});
+
+test('the fact hash covers what happened, not how we learned it', () => {
+  const base = validEvent();
+  const fact = eventFactSha256(base);
+  assert.match(fact, /^[0-9a-f]{64}$/);
+
+  // Another source, another fetch, the same fact.
+  const corroborating = {
+    ...base,
+    observed_at: '2026-10-13T00:00:00.000Z',
+    provenance: { ...base.provenance, provider: 'other', provider_group: 'other', evidence_refs: ['raw_observation:99'] },
+    severity: 'NOTICE' as const,
+  };
+  assert.equal(eventFactSha256(corroborating), fact);
+  assert.equal(eventFactSha256({ ...base, payload: Object.fromEntries(Object.entries(base.payload).reverse()) }), fact, 'key order is not meaning');
+
+  // A different fact.
+  assert.notEqual(eventFactSha256({ ...base, payload: { ...base.payload, extra: '1' } }), fact);
+  assert.notEqual(eventFactSha256({ ...base, subject: 'system:other' }), fact);
+  assert.notEqual(eventFactSha256({ ...base, event_time: '2026-10-05T00:00:00.000Z' }), fact);
+
+  // One instant, two spellings.
+  const timed = { ...base, event_time: '2026-10-05T13:53:18.133Z' };
+  assert.equal(eventFactSha256({ ...timed, event_time: '2026-10-05T13:53:18.133000Z' }), eventFactSha256(timed));
 });

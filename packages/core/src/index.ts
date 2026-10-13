@@ -1,4 +1,5 @@
 export * from './contracts/primitives.js';
+export * from './contracts/canonical-json.js';
 export * from './contracts/asset-id.js';
 export * from './contracts/observed.js';
 export * from './contracts/provenance.js';
