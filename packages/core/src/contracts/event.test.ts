@@ -132,6 +132,9 @@ test('the fact hash covers what happened, not how we learned it', () => {
     severity: 'NOTICE' as const,
   };
   assert.equal(eventFactSha256(corroborating), fact);
+  // The envelope version describes the encoding, not what happened.
+  const newerEnvelope = { ...base, schema_version: 2 };
+  assert.equal(eventFactSha256(newerEnvelope), fact);
   assert.equal(eventFactSha256({ ...base, payload: Object.fromEntries(Object.entries(base.payload).reverse()) }), fact, 'key order is not meaning');
 
   // A different fact.

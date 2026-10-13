@@ -5,10 +5,11 @@
 -- must stay visible.
 --
 -- events.fact_sha256 hashes what the event says happened (domain, action,
--- subject, payload, source time), not how we learned it (provenance,
--- observed_at). Rows stored before this migration have no hash: they are
--- append-only, so it cannot be filled in, and a contradiction with one of
--- them is not detected.
+-- subject, payload with its version, source time), not how we learned it
+-- (provenance, observed_at) or how it is encoded (schema_version). Rows stored
+-- before this migration have no hash and, being append-only, are not given
+-- one: the runtime derives it from their stored columns when it needs to
+-- compare (see eventFactSha256).
 
 ALTER TABLE events ADD COLUMN fact_sha256 text CHECK (fact_sha256 ~ '^[0-9a-f]{64}$');
 

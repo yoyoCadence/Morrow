@@ -153,9 +153,11 @@ test('a different fact under a dedupe key that is taken is kept as a conflict, o
   assert.deepEqual(stored.rows.map((row) => row.payload), [{ price_usd: '0.0000123' }], 'the stored event is not replaced');
 });
 
-test('an event stored before facts were hashed cannot be contradicted, so nothing is claimed', async () => {
+test('an event stored before facts were hashed is compared through a hash derived from its columns', async () => {
   const key = `test:event:${Math.random()}`;
-  await appendEvent(db.pool, event(key));
+  // A source time with microseconds, and a payload whose keys jsonb will reorder.
+  const legacy = { ...event(key), event_time: '2026-10-05T13:53:18.133456Z', payload: { zeta: 1.5, alpha: { b: [1, 'x'], a: null } } };
+  await appendEvent(db.pool, legacy);
   // Simulate a row from before migration 0004, which has no fact hash.
   await db.pool.query('ALTER TABLE events DISABLE TRIGGER events_append_only');
   try {
@@ -163,8 +165,14 @@ test('an event stored before facts were hashed cannot be contradicted, so nothin
   } finally {
     await db.pool.query('ALTER TABLE events ENABLE TRIGGER events_append_only');
   }
-  const result = await appendEvent(db.pool, { ...event(key), payload: { price_usd: '1' } });
-  assert.deepEqual([result.inserted, result.conflicting], [false, false]);
+
+  const repeat = await appendEvent(db.pool, { ...legacy, observed_at: new Date().toISOString() });
+  assert.deepEqual([repeat.inserted, repeat.conflicting], [false, false], 'the same fact, read back from storage, is a repeat');
+
+  const contradiction = await appendEvent(db.pool, { ...legacy, payload: { ...legacy.payload, zeta: 2 } });
+  assert.deepEqual([contradiction.inserted, contradiction.conflicting], [false, true]);
+  const recorded = await db.pool.query('SELECT 1 FROM event_conflicts WHERE dedupe_key = $1', [key]);
+  assert.equal(recorded.rowCount, 1);
 });
 
 test('an invalid event is rejected before it reaches the database', async () => {

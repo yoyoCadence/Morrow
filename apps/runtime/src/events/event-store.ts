@@ -1,4 +1,4 @@
-import { eventFactSha256, eventIdFor, NewEvent } from '@morrow/core';
+import { eventFactSha256, eventIdFor, NewEvent, type EventFact } from '@morrow/core';
 import type { z } from 'zod';
 import type { Queryable } from '../db/pool.js';
 
@@ -12,6 +12,43 @@ export interface AppendResult {
    * as an event.
    */
   readonly conflicting: boolean;
+}
+
+interface StoredFactRow {
+  fact_sha256: string | null;
+  domain: EventFact['domain'];
+  action: string;
+  subject: string;
+  payload_version: number;
+  payload: Record<string, unknown>;
+  event_time: Date | null;
+}
+
+/**
+ * The fact hash of a stored event. Events stored before migration 0004 have
+ * none, and append-only rows cannot be given one, so it is derived from the
+ * stored columns with the same function. That is exact: key order does not
+ * matter to the hash, a JSON number survives the jsonb round trip unchanged,
+ * and the source time is compared to the millisecond on both sides.
+ */
+async function storedFactSha256(db: Queryable, eventId: string): Promise<string> {
+  const result = await db.query<StoredFactRow>(
+    'SELECT fact_sha256, domain, action, subject, payload_version, payload, event_time FROM events WHERE event_id = $1',
+    [eventId],
+  );
+  const row = result.rows[0];
+  if (!row) throw new Error(`event ${eventId} conflicted on insert but cannot be read`);
+  return (
+    row.fact_sha256 ??
+    eventFactSha256({
+      domain: row.domain,
+      action: row.action,
+      subject: row.subject,
+      payload_version: row.payload_version,
+      payload: row.payload,
+      event_time: row.event_time?.toISOString() ?? null,
+    })
+  );
 }
 
 /**
@@ -54,10 +91,8 @@ export async function appendEvent(db: Queryable, input: z.input<typeof NewEvent>
   );
   if (result.rowCount === 1) return { eventId, inserted: true, conflicting: false };
 
-  const stored = await db.query<{ fact_sha256: string | null }>('SELECT fact_sha256 FROM events WHERE event_id = $1', [eventId]);
-  const storedFact = stored.rows[0]?.fact_sha256 ?? null;
-  // Stored before facts were hashed: a contradiction cannot be told from a repeat.
-  if (storedFact === null || storedFact === factSha256) return { eventId, inserted: false, conflicting: false };
+  const storedFact = await storedFactSha256(db, eventId);
+  if (storedFact === factSha256) return { eventId, inserted: false, conflicting: false };
 
   await db.query(
     `INSERT INTO event_conflicts (event_id, dedupe_key, stored_fact_sha256, incoming_fact_sha256, incoming_event)
