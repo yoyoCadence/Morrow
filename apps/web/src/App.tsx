@@ -331,11 +331,11 @@ const FRESHNESS_TONE: Record<Freshness, Tone> = { fresh: 'good', late: 'warn', s
 function UpdateIndicator({ health, now }: { health: HealthState; now: number }) {
   if (health.kind === 'loading') return null;
   const received = health.kind === 'ready' ? health : health.last;
-  const fetchedAt = received?.fetchedAt.getTime() ?? now;
+  const requestedAt = received?.requestedAt.getTime() ?? now;
   // `now` ticks once a second, so a report that just arrived can be newer than it. An age is never negative.
-  const age = Math.max(0, now - fetchedAt);
+  const age = Math.max(0, now - requestedAt);
   const tone: Tone = health.kind === 'unreachable' ? 'bad' : FRESHNESS_TONE[freshness(age, REFRESH_MS)];
-  const ago = received ? formatRelative(fetchedAt, fetchedAt + age) : null;
+  const ago = received ? formatRelative(requestedAt, requestedAt + age) : null;
   const text =
     health.kind === 'unreachable'
       ? ago === null
@@ -343,7 +343,7 @@ function UpdateIndicator({ health, now }: { health: HealthState; now: number }) 
         : `無法更新 · 上次成功 ${ago}`
       : `上次更新 ${ago}`;
   return (
-    <p className="freshness" title={received ? `${formatTime(received.fetchedAt.toISOString())}（台北）` : undefined}>
+    <p className="freshness" title={received ? `${formatTime(received.requestedAt.toISOString())}（台北）` : undefined}>
       <span className={`dot dot-${tone}`} aria-hidden="true" />
       {text}
     </p>
@@ -378,7 +378,7 @@ export function App() {
       {received ? (
         // Dimmed while the API is unreachable: it is the last known state, not the current one.
         <div className={health.kind === 'unreachable' ? 'report report-stale' : 'report'}>
-          <Report report={received.report} now={serverNow(received.report.time, received.fetchedAt.getTime(), now)} />
+          <Report report={received.report} now={serverNow(received.report.time, received.requestedAt.getTime(), now)} />
         </div>
       ) : null}
     </main>
