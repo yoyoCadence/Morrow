@@ -64,11 +64,25 @@ export const QuotaView = z.strictObject({
 });
 export type QuotaView = z.infer<typeof QuotaView>;
 
+/**
+ * Whether a session is alive now, derived when the report is built. The
+ * stored status alone cannot say: a process that crashes or is killed stays
+ * RUNNING until the next start of that component notices.
+ *
+ * - LIVE: RUNNING, with a heartbeat within the liveness threshold.
+ * - STALE: RUNNING, but silent for longer than that. It crashed, was killed,
+ *   is frozen, or the machine is asleep. Nothing is being observed.
+ * - ENDED: STOPPED or ABANDONED.
+ */
+export const SessionLiveness = z.enum(['LIVE', 'STALE', 'ENDED']);
+export type SessionLiveness = z.infer<typeof SessionLiveness>;
+
 export const SessionView = z.strictObject({
   id: z.string(),
   component: z.enum(['api', 'worker']),
   mode: z.string(),
   status: z.enum(['RUNNING', 'STOPPED', 'ABANDONED']),
+  liveness: SessionLiveness,
   started_at: UtcTimestamp,
   last_heartbeat_at: UtcTimestamp,
   ended_at: UtcTimestamp.nullable(),

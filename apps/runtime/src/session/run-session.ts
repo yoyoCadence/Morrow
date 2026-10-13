@@ -238,6 +238,61 @@ export async function requestStop(pool: pg.Pool, components: readonly Component[
   });
 }
 
+export type StopOutcome =
+  /** No longer RUNNING: it shut down cleanly. */
+  | { readonly component: Component; readonly result: 'stopped' }
+  /**
+   * Still recorded as RUNNING, but silent for longer than the liveness
+   * threshold, so no process is there to stop: it crashed or was killed. Its
+   * next start marks it ABANDONED and records the silence as a gap.
+   */
+  | { readonly component: Component; readonly result: 'not_running'; readonly silentForMs: number }
+  /** Still heartbeating when the wait ran out. */
+  | { readonly component: Component; readonly result: 'still_running' };
+
+export interface WaitForStopOptions {
+  readonly timeoutMs: number;
+  readonly pollMs?: number;
+  readonly livenessThresholdMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Waits for the sessions of the given components to end after a stop request.
+ * A session that has gone silent counts as not running instead of being
+ * waited on: a dead process never reads the request.
+ */
+export async function waitForStop(
+  pool: pg.Pool,
+  components: readonly Component[],
+  options: WaitForStopOptions,
+): Promise<StopOutcome[]> {
+  const threshold = options.livenessThresholdMs ?? LIVENESS_THRESHOLD_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const deadline = Date.now() + options.timeoutMs;
+  const running = async () =>
+    (
+      await pool.query<{ component: Component; silent_ms: number }>(
+        `SELECT component, (EXTRACT(EPOCH FROM clock_timestamp() - last_heartbeat_at) * 1000)::float8 AS silent_ms
+           FROM run_sessions WHERE status = 'RUNNING' AND component = ANY($1::text[])`,
+        [components],
+      )
+    ).rows;
+
+  const watched = new Set((await running()).map((row) => row.component));
+  for (;;) {
+    const rows = await running();
+    const outcomes = [...watched].map((component): StopOutcome => {
+      const row = rows.find((candidate) => candidate.component === component);
+      if (!row) return { component, result: 'stopped' };
+      if (row.silent_ms > threshold) return { component, result: 'not_running', silentForMs: row.silent_ms };
+      return { component, result: 'still_running' };
+    });
+    if (outcomes.every((outcome) => outcome.result !== 'still_running') || Date.now() >= deadline) return outcomes;
+    await sleep(options.pollMs ?? 500);
+  }
+}
+
 export interface SessionKeeperOptions {
   readonly pool: pg.Pool;
   readonly sessionId: string;

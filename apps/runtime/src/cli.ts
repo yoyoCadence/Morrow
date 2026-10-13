@@ -10,7 +10,7 @@ import { sleep } from './jobs/worker.js';
 import { createLogger } from './logging/logger.js';
 import { createRedactor } from './logging/redact.js';
 import { PROBE_JOB_KIND, readProbeRecords } from './providers/probes.js';
-import { requestStop, SessionConflictError, type Component } from './session/run-session.js';
+import { requestStop, SessionConflictError, waitForStop, type Component } from './session/run-session.js';
 import { APP_VERSION } from './version.js';
 
 const USAGE = `Morrow ${APP_VERSION} (research and Paper only)
@@ -82,25 +82,23 @@ async function commandStop(config: AppConfig, target: string | undefined): Promi
   }
   return withPool(config, 'stop', async (pool) => {
     const asked = await requestStop(pool, components);
-    if (asked.length === 0) {
-      print('Nothing to stop: no matching process is running, or a stop is already pending.');
+    if (asked.length > 0) print(`Stop requested for: ${asked.join(', ')}. Waiting for clean shutdown...`);
+    // Includes sessions whose stop was already pending, and ones that went silent.
+    const outcomes = await waitForStop(pool, components, { timeoutMs: 30_000 });
+    if (outcomes.length === 0) {
+      print('Nothing to stop: no matching process is running.');
       return 0;
     }
-    print(`Stop requested for: ${asked.join(', ')}. Waiting for clean shutdown...`);
-    const deadline = Date.now() + 30_000;
-    while (Date.now() < deadline) {
-      const remaining = await pool.query<{ component: string }>(
-        "SELECT component FROM run_sessions WHERE status = 'RUNNING' AND component = ANY($1::text[])",
-        [asked],
-      );
-      if (remaining.rows.length === 0) {
-        print('Stopped.');
-        return 0;
-      }
-      await sleep(500);
+    for (const outcome of outcomes) {
+      if (outcome.result === 'stopped') print(`${outcome.component}: stopped.`);
+      else if (outcome.result === 'not_running') {
+        print(
+          `${outcome.component}: not running. No heartbeat for ${Math.round(outcome.silentForMs / 1000)}s, so it crashed ` +
+            'or was killed. Its next start records the silence as an UNCLEAN_SHUTDOWN gap.',
+        );
+      } else print(`${outcome.component}: still running after 30s. The process may be busy or frozen; check its log.`);
     }
-    print('Still running after 30s. The process may be busy or frozen; check its log.');
-    return 1;
+    return outcomes.some((outcome) => outcome.result === 'still_running') ? 1 : 0;
   });
 }
 

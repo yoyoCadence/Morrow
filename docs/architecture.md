@@ -123,6 +123,8 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 | `UNCLEAN_SHUTDOWN` | 前一個執行階段沒有正常結束；從它最後一次心跳算起 |
 | `HEARTBEAT_STALL` | 同一個執行階段內兩次心跳間隔超過 30 秒（休眠、凍結） |
 
+Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一直是 `RUNNING`，直到該元件下一次啟動。所以 health 以資料庫時鐘計算心跳的年齡，超過 30 秒就把該 session 標為 `STALE`（推導出來的狀態，不改寫紀錄），整體狀態降級；`RESEARCH`／`PAPER` 模式下沒有 `LIVE` 的 worker，也會降級。
+
 停止程序有兩種方式：終端機內按 Ctrl+C，或執行 `npm run stop`。後者在資料庫寫入停止請求，程序在下一次心跳（5 秒內）讀到後乾淨結束。Windows 沒有可用的 SIGTERM，所以沒有主控台的程序要用這個方式停止。
 
 ## 本機 API
