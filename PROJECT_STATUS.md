@@ -2,14 +2,15 @@
 
 目前階段、驗證證據、阻礙與下一步。這是唯一的狀態文件；里程碑定義在 [ROADMAP.md](ROADMAP.md)，任務在 [tasks.md](tasks.md)。
 
-最後更新：2026-10-05
+最後更新：2026-10-13
 
 ## 現況
 
 - **M0（基礎與契約）完成。** 五項完成門檻中四項達成；第五項「保存 provider entitlement probes」的機制完成且結果已保存，但除了不需要金鑰的 DEX Screener，還沒有取得任何供應商的實際權限資料。
 - **E1.0 進行中。** 13 個功能的端點都已對照官方文件核對並補齊，OKX 各端點也已依官方價目頁分到 Basic 或 Premium 額度桶。在目前的開發機上實際跑 probe：DEX Screener 回 200，其餘 12 個因為沒有憑證而沒有送出。
 - **M1 受阻**，現在只剩憑證。網路問題在目前的開發機上不存在。見「阻礙」。
-- 系統只有 probe 會取得市場資料，沒有任何資料解析或交易功能，Paper 的也沒有。
+- 系統只有 probe 會取得市場資料。DEX Screener `tokens/v1` 的回應會被解析成 `market/pair.snapshot` 事件（PR #5）；沒有其他 parser，也沒有任何交易功能，Paper 的也沒有。
+- **2026-10-13 完成一次專案審查**，結論在 [docs/reviews/2026-10-13-project-review.md](docs/reviews/2026-10-13-project-review.md)。重現了 4 個影響「誠實呈現」的問題（worker 當掉仍顯示運作正常、單一 pair 讓整個回應解析失敗、404 與 OKX 錯誤碼顯示為 HEALTHY、資料庫連線沒有逾時），修正項目列為 tasks.md 的 `RV-01`～`RV-05`，不需要憑證。
 
 ## M0 交付內容
 
@@ -41,7 +42,7 @@
 
 ### Automated
 
-`npm test`：**153 個測試全部通過**，其中 70 個不需要資料庫，83 個對真實的 PostgreSQL 17 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」。）
+`npm test`：**170 個測試全部通過**，其中 81 個不需要資料庫，89 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過。）
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
@@ -155,6 +156,8 @@ DEX Screener 回應的內容：wrapped SOL 只回了 1 個 pair（Orca 的 SOL/U
 | OKX 端點與額度桶 | 列出所需功能 | 7 個功能都已定義端點（E1.0）。hot-token、trades 用 Basic；memepump、holder、cluster overview／list／top-holders 用 Premium | 依官方價目頁 [market-api-fee](https://web3.okx.com/onchainos/dev-docs/market/market-api-fee)。M0 時文件讀不到，所以當時沒有定義 |
 | Jupiter quote | 「Jupiter」quote | Swap V2 的 `GET /swap/v2/order`，不帶 `taker` | `/swap/v1/quote` 已被官方標為不再維護。不帶 `taker` 時只回 quote，`transaction` 為 null；帶了 Jupiter 就會組出待簽交易，所以永遠不帶，並有測試把關 |
 | Probe 使用的 token | 未指定 | wrapped SOL（Jupiter quote 另用 USDC 當輸出） | 永久存在、每個端點都認得。只用來確認權限，不代表研究標的 |
+| Git 流程（2026-10-13） | Agent 不 push、不開 PR、不 merge | 審查的 PR 由 agent 開立並合併 | 操作人於 2026-10-13 對本次審查任務明確要求「開 PR 並合併」 |
+| 任務看板 | 不在 Next／In Progress 的任務不得開始（AGENTS.md §8） | PR #5（DEX Screener parser、migration 0002）合併時不在看板上，也沒有更新狀態文件 | 2026-10-13 審查時補記到 tasks.md 的 Done；之後以 PR 範本把關（RV-10） |
 
 沒有降低任何驗收標準。無法取得的 live 證據維持 pending。
 
@@ -163,6 +166,7 @@ DEX Screener 回應的內容：wrapped SOL 只回了 1 個 pair（Orca 的 SOL/U
 1. 操作人申請 Jupiter、Helius、OKX 的免費唯讀憑證並寫入 `.env`（阻礙 2）。
 2. **E1.0 收尾**：在目前的開發機重跑 `npm run probe`，把 12 個功能的實測結果記在這裡；OKX 的結果已會依回應的 `code` 分類，第一次仍要打開原始回應確認格式與文件一致。每個功能都是 `OK`，或有明確結論的 `PAYMENT_REQUIRED`／`UNAUTHORIZED`，E1.0 才算完成。
 3. 之後才開始 E1.1 與 E1.2。
+4. 與 1、2 平行：tasks.md「審查修正」的 `RV-01`～`RV-05`（health 新鮮度、parser 單筆隔離、來源狀態語意、資料庫逾時、CI）。不需要憑證，但不應因此延後第 1 步。
 
 ## 交接備註
 
