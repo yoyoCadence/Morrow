@@ -118,6 +118,16 @@ export function pgToolEnv(connectionString: string, database?: string): NodeJS.P
   return env;
 }
 
+/**
+ * Whether an archive's table of contents (`pg_restore --list`) creates
+ * `schema` itself. A listing line reads `4; 2615 2200 SCHEMA - public owner`.
+ * pg_dump leaves `public` out when it dumps a whole database, as a schema
+ * every new database already has; selected with --schema, it may be listed.
+ */
+export function archiveCreatesSchema(listing: string, schema: string): boolean {
+  return listing.split(/\r?\n/).some((line) => /^\d+;\s+\d+\s+\d+\s+SCHEMA\s+-\s+(\S+)\s/.exec(line)?.[1] === schema);
+}
+
 /** The major version in `pg_dump --version` output, for example 17 in "pg_dump (PostgreSQL) 17.6". */
 export function parseToolMajor(output: string): number | null {
   const match = /\(PostgreSQL\)\s+(\d+)/.exec(output);
@@ -360,7 +370,11 @@ export async function checkRestore(input: {
   const pool = await openRestoreCheckDatabase(connectionString, manifest.database);
   try {
     await assertToolVersion('pg_restore', manifest.server_major, env, redact);
+    const listing = await runTool('pg_restore', ['--list', file], env, redact);
     await pool.query(`DROP SCHEMA IF EXISTS ${quoteIdent(manifest.schema)} CASCADE`);
+    // Whether the archive creates the schema depends on how it was dumped and
+    // on the PostgreSQL version; create it here only when the archive will not.
+    if (!archiveCreatesSchema(listing, manifest.schema)) await pool.query(`CREATE SCHEMA ${quoteIdent(manifest.schema)}`);
     await runTool('pg_restore', ['--no-owner', '--no-privileges', '--exit-on-error', '--single-transaction', `--dbname=${target}`, file], env, redact);
 
     const restored = await describeSchema(pool, manifest.schema);

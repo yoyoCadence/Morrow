@@ -63,6 +63,24 @@ test('a backup restores into the check database and matches its manifest, table 
   assert.equal((await db.pool.query('SELECT 1 FROM run_sessions')).rowCount, 1, 'the source is untouched');
 });
 
+test('the public schema, which is what npm run backup dumps, restores and checks too', async (t) => {
+  const { db, dir, check } = await setup(t);
+  // The test database's public schema is otherwise unused: test files work in their own schemas.
+  const table = `backup_public_${db.schema}`;
+  await db.pool.query(`CREATE TABLE public.${table} (id int)`);
+  defer(t, () => db.pool.query(`DROP TABLE IF EXISTS public.${table}`));
+  await db.pool.query(`INSERT INTO public.${table} VALUES (1), (2), (3)`);
+
+  const backup = await createBackup({ pool: db.pool, connectionString: db.url, schema: 'public', dir, redact: identity });
+  assert.equal(backup.manifest.tables[table], 3);
+  await checkRestore({ connectionString: db.url, manifestFile: backup.manifestFile, redact: identity });
+  assert.equal(await schemaExists(check, 'public'), false, 'cleaned up after the check');
+
+  // Again, now that the check database has no public schema at all.
+  const again = await createBackup({ pool: db.pool, connectionString: db.url, schema: 'public', dir, redact: identity });
+  await checkRestore({ connectionString: db.url, manifestFile: again.manifestFile, redact: identity });
+});
+
 test('the dump and its row counts come from one snapshot while writes continue', async (t) => {
   const { db, dir } = await setup(t);
   let writing = true;

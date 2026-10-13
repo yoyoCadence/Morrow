@@ -128,7 +128,7 @@ Append-only 的表以 trigger 擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 2. `pg_dump --snapshot` 用同一個 snapshot 傾印 `public` schema（custom format，不含 owner 與權限），所以 manifest 與傾印描述的是同一份資料，worker 繼續寫入也一樣。
 3. 傾印先寫成 `.partial`，完成後才改名。旁邊的 manifest（JSON）記錄大小、SHA-256 與上述內容。
 
-接著還原到 `<資料庫>_restore_check`，核對 SHA-256、每張表的列數、trigger 與 migration。通過後刪掉還原出來的 schema，並在 manifest 記下 `restore_check`；不符時保留它供檢查。還原的目標名稱由程式推導、必定以 `_restore_check` 結尾，且在刪除任何東西之前以 `current_database()` 再確認一次，所以不會覆蓋使用中的資料庫。連線資訊以 `PG*` 環境變數傳給 pg_dump／pg_restore，密碼不會出現在程序清單；工具版本必須不舊於伺服器。
+接著還原到 `<資料庫>_restore_check`（先刪掉同名 schema；archive 的目錄沒有建立該 schema 時才自己建立，因為 pg_dump 是否把 `public` 本身寫進 archive 依傾印方式與版本而定），核對 SHA-256、每張表的列數、trigger 與 migration。通過後刪掉還原出來的 schema，並在 manifest 記下 `restore_check`；不符時保留它供檢查。還原的目標名稱由程式推導、必定以 `_restore_check` 結尾，且在刪除任何東西之前以 `current_database()` 再確認一次，所以不會覆蓋使用中的資料庫。連線資訊以 `PG*` 環境變數傳給 pg_dump／pg_restore，密碼不會出現在程序清單；工具版本必須不舊於伺服器。
 
 各表的成長以 `npm run storage` 量測；保留策略見 [ADR-0001](adr/0001-storage-retention.md)（提案中）。新增資料表時，要在 `db/storage.ts` 的 `STORAGE_TIME_COLUMNS` 登記它的時間欄位（或 `null`），否則測試會失敗。
 
