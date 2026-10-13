@@ -1,23 +1,9 @@
 import type { HealthReport } from '@morrow/core';
 import type { ReactNode } from 'react';
-import { useHealth } from './useHealth';
+import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
+import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth';
 
-// Storage is UTC; the operator reads Asia/Taipei.
-const taipeiTime = new Intl.DateTimeFormat('zh-TW', {
-  timeZone: 'Asia/Taipei',
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hour12: false,
-});
 const wholeNumber = new Intl.NumberFormat('zh-TW');
-
-function formatTime(iso: string | null): string {
-  return iso === null ? '—' : taipeiTime.format(new Date(iso));
-}
 
 function formatDuration(startIso: string, endIso: string): string {
   const seconds = Math.max(0, Math.round((Date.parse(endIso) - Date.parse(startIso)) / 1000));
@@ -48,6 +34,16 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
+/** A relative time such as "12 秒前", with the full Taipei time as its tooltip. */
+function Ago({ iso, now }: { iso: string | null; now: number }) {
+  if (iso === null) return <>—</>;
+  return (
+    <time dateTime={iso} title={`${formatTime(iso)}（台北）`}>
+      {formatRelative(Date.parse(iso), now)}
+    </time>
+  );
+}
+
 /** RUNNING is only shown as healthy while the session still heartbeats. */
 function SessionBadge({ session }: { session: HealthReport['sessions'][number] }) {
   if (session.liveness === 'STALE') return <Badge tone="bad">心跳中斷</Badge>;
@@ -56,8 +52,8 @@ function SessionBadge({ session }: { session: HealthReport['sessions'][number] }
 }
 
 /** A backoff that has already ended is no longer worth showing. */
-function stillBlocked(blockedUntil: string | null, now: string): boolean {
-  return blockedUntil !== null && Date.parse(blockedUntil) > Date.parse(now);
+function stillBlocked(blockedUntil: string | null, now: number): boolean {
+  return blockedUntil !== null && Date.parse(blockedUntil) > now;
 }
 
 function sourceTone(state: HealthReport['sources'][number]['state']): Tone {
@@ -115,7 +111,8 @@ function Findings({ findings }: { findings: HealthReport['findings'] }) {
   );
 }
 
-function Report({ report }: { report: HealthReport }) {
+/** `now` is the server's current time (see `serverNow`), so relative times do not depend on this browser's clock. */
+function Report({ report, now }: { report: HealthReport; now: number }) {
   const { database } = report;
   return (
     <>
@@ -168,8 +165,12 @@ function Report({ report }: { report: HealthReport }) {
                     <SessionBadge session={session} />
                   </td>
                   <td>{session.mode}</td>
-                  <td>{formatTime(session.started_at)}</td>
-                  <td>{formatTime(session.last_heartbeat_at)}</td>
+                  <td>
+                    <Ago iso={session.started_at} now={now} />
+                  </td>
+                  <td>
+                    <Ago iso={session.last_heartbeat_at} now={now} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -237,8 +238,12 @@ function Report({ report }: { report: HealthReport }) {
                           .join(' · ')}）`
                       : ''}
                   </td>
-                  <td>{formatTime(stillBlocked(source.blocked_until, report.time) ? source.blocked_until : null)}</td>
-                  <td>{formatTime(source.last_success_at)}</td>
+                  <td>
+                    <Ago iso={stillBlocked(source.blocked_until, now) ? source.blocked_until : null} now={now} />
+                  </td>
+                  <td>
+                    <Ago iso={source.last_success_at} now={now} />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -292,14 +297,44 @@ function Report({ report }: { report: HealthReport }) {
   );
 }
 
+const FRESHNESS_TONE: Record<Freshness, Tone> = { fresh: 'good', late: 'warn', stale: 'bad' };
+
+/** When this page last got a report, and whether it is still getting them. No animation: a steady dot. */
+function UpdateIndicator({ health, now }: { health: HealthState; now: number }) {
+  if (health.kind === 'loading') return null;
+  const received = health.kind === 'ready' ? health : health.last;
+  const fetchedAt = received?.fetchedAt.getTime() ?? now;
+  // `now` ticks once a second, so a report that just arrived can be newer than it. An age is never negative.
+  const age = Math.max(0, now - fetchedAt);
+  const tone: Tone = health.kind === 'unreachable' ? 'bad' : FRESHNESS_TONE[freshness(age, REFRESH_MS)];
+  const ago = received ? formatRelative(fetchedAt, fetchedAt + age) : null;
+  const text =
+    health.kind === 'unreachable'
+      ? ago === null
+        ? '無法更新，尚未取得任何狀態'
+        : `無法更新 · 上次成功 ${ago}`
+      : `上次更新 ${ago}`;
+  return (
+    <p className="freshness" title={received ? `${formatTime(received.fetchedAt.toISOString())}（台北）` : undefined}>
+      <span className={`dot dot-${tone}`} aria-hidden="true" />
+      {text}
+    </p>
+  );
+}
+
 export function App() {
   const health = useHealth();
-  const report = health.kind === 'ready' ? health.report : health.kind === 'unreachable' ? health.last : null;
+  const now = useNow();
+  const received = health.kind === 'ready' ? health : health.kind === 'unreachable' ? health.last : null;
+  const report = received?.report ?? null;
 
   return (
     <main>
       <header>
-        <h1>Morrow</h1>
+        <div className="title-row">
+          <h1>Morrow</h1>
+          <UpdateIndicator health={health} now={now} />
+        </div>
         <p className="paper-banner" role="note">
           僅限研究與 Paper 模式 · 實盤交易已停用（沒有簽署金鑰，所有實盤額度為 0）
         </p>
@@ -311,7 +346,12 @@ export function App() {
           無法連線到本機 API（{health.message}）。{report ? '以下是最後一次取得的狀態，可能已過期。' : '請確認 API 已啟動：npm run api'}
         </p>
       ) : null}
-      {report ? <Report report={report} /> : null}
+      {received ? (
+        // Dimmed while the API is unreachable: it is the last known state, not the current one.
+        <div className={health.kind === 'unreachable' ? 'report report-stale' : 'report'}>
+          <Report report={received.report} now={serverNow(received.report.time, received.fetchedAt.getTime(), now)} />
+        </div>
+      ) : null}
     </main>
   );
 }
