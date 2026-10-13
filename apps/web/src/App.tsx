@@ -247,7 +247,7 @@ function SourcesSection({ report, now }: { report: HealthReport; now: number }) 
           {groups.length === 0 ? (
             <p className="empty">所有來源都正常。</p>
           ) : (
-            <table className="sources">
+            <table className="sources responsive">
               <thead>
                 <tr>
                   <th>功能</th>
@@ -269,16 +269,26 @@ function SourcesSection({ report, now }: { report: HealthReport; now: number }) 
                   </tr>
                   {group.rows.map((source) => (
                     <tr key={`${source.provider}/${source.capability}`}>
-                      <td>{source.capability === '*' ? '全部功能（共用的 rate limit）' : source.capability}</td>
-                      <td>
+                      <td className="cell-primary" data-label="功能">
+                        {source.capability === '*' ? '全部功能（共用的 rate limit）' : source.capability}
+                      </td>
+                      <td className="cell-status" data-label="狀態">
                         <Badge tone={sourceTone(source.state)}>{source.state}</Badge>
                       </td>
-                      <td className="result">{lastResult(source)}</td>
-                      <td title={source.quota_bucket === null ? '沒有月額度' : undefined}>{bucketUsage(source, report.quota)}</td>
-                      <td>
+                      <td className="result" data-label="最近結果">
+                        {lastResult(source)}
+                      </td>
+                      <td
+                        className={source.quota_bucket === null ? 'is-empty' : undefined}
+                        data-label="額度桶"
+                        title={source.quota_bucket === null ? '沒有月額度' : undefined}
+                      >
+                        {bucketUsage(source, report.quota)}
+                      </td>
+                      <td className={stillBlocked(source.blocked_until, now) ? undefined : 'is-empty'} data-label="暫停到">
                         <Ago iso={stillBlocked(source.blocked_until, now) ? source.blocked_until : null} now={now} />
                       </td>
-                      <td>
+                      <td data-label="最近成功">
                         <Ago iso={source.last_success_at} now={now} />
                       </td>
                     </tr>
@@ -408,7 +418,7 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
         {report.sessions.length === 0 ? (
           <p className="empty">尚無執行紀錄。</p>
         ) : (
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>元件</th>
@@ -421,15 +431,17 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
             <tbody>
               {report.sessions.map((session) => (
                 <tr key={session.id}>
-                  <td>{session.component}</td>
-                  <td>
+                  <td className="cell-primary" data-label="元件">
+                    {session.component}
+                  </td>
+                  <td className="cell-status" data-label="狀態">
                     <SessionBadge session={session} />
                   </td>
-                  <td>{session.mode}</td>
-                  <td>
+                  <td data-label="模式">{session.mode}</td>
+                  <td data-label="啟動">
                     <Ago iso={session.started_at} now={now} />
                   </td>
-                  <td>
+                  <td data-label="最後心跳">
                     <Ago iso={session.last_heartbeat_at} now={now} />
                   </td>
                 </tr>
@@ -445,7 +457,7 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
         {report.recent_gaps.length === 0 ? (
           <p className="empty">沒有紀錄到缺口。</p>
         ) : (
-          <table>
+          <table className="responsive">
             <thead>
               <tr>
                 <th>元件</th>
@@ -458,11 +470,15 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
             <tbody>
               {report.recent_gaps.map((gap) => (
                 <tr key={`${gap.component}-${gap.gap_start}-${gap.kind}`}>
-                  <td>{gap.component}</td>
-                  <td>{GAP_LABELS[gap.kind]}</td>
-                  <td>{formatTime(gap.gap_start)}</td>
-                  <td>{formatTime(gap.gap_end)}</td>
-                  <td>{formatDuration(gap.gap_start, gap.gap_end)}</td>
+                  <td className="cell-primary" data-label="元件">
+                    {gap.component}
+                  </td>
+                  <td className="cell-status" data-label="原因">
+                    {GAP_LABELS[gap.kind]}
+                  </td>
+                  <td data-label="開始">{formatTime(gap.gap_start)}</td>
+                  <td data-label="結束">{formatTime(gap.gap_end)}</td>
+                  <td data-label="長度">{formatDuration(gap.gap_start, gap.gap_end)}</td>
                 </tr>
               ))}
             </tbody>
@@ -476,7 +492,7 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
         title="額度"
         hint="本月用量。條的全長是供應商上限；條上第一道刻度是警告線，第二道是硬性上限。到達硬性上限後系統自行停止請求，不付費、不換帳號。推估以本月到目前的平均速度計算，關機的時間也算在內。"
       >
-        <table className="quota">
+        <table className="quota responsive">
           <thead>
             <tr>
               <th>供應商</th>
@@ -492,19 +508,24 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
           <tbody>
             {report.quota.map((bucket) => (
               <tr key={`${bucket.provider}/${bucket.bucket}`}>
-                <td>{bucket.provider}</td>
-                <td>{bucket.bucket}</td>
-                <td>
+                <td className="cell-primary" data-label="供應商">
+                  {bucket.provider}
+                  <span className="narrow-only"> / {bucket.bucket}</span>
+                </td>
+                <td className="wide-only" data-label="額度桶">
+                  {bucket.bucket}
+                </td>
+                <td data-label="用量">
                   <span className="quota-used">
                     <QuotaBar bucket={bucket} />
                     {wholeNumber.format(bucket.used)}
                   </span>
                 </td>
-                <td>{wholeNumber.format(bucket.warn_at)}</td>
-                <td>{wholeNumber.format(bucket.hard_stop_at)}</td>
-                <td>{wholeNumber.format(bucket.source_limit)}</td>
-                <td>{describeProjection(projectHardStop(bucket, now))}</td>
-                <td>
+                <td data-label="警告線">{wholeNumber.format(bucket.warn_at)}</td>
+                <td data-label="硬性上限">{wholeNumber.format(bucket.hard_stop_at)}</td>
+                <td data-label="供應商上限">{wholeNumber.format(bucket.source_limit)}</td>
+                <td data-label="依目前速度">{describeProjection(projectHardStop(bucket, now))}</td>
+                <td className="cell-status" data-label="狀態">
                   <Badge tone={QUOTA_TONE[bucket.state]}>{bucket.state}</Badge>
                 </td>
               </tr>

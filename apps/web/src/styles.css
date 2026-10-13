@@ -517,3 +517,108 @@ tbody tr:last-child td {
   border-radius: 2px;
   border: 1px solid var(--border);
 }
+
+/* Shown only in the narrow card layout below. */
+.narrow-only {
+  display: none;
+}
+
+/*
+ * Narrow screens: each table row becomes a card. The first line says what
+ * the row is about and its status; every other cell is a "label  value"
+ * line, the label taken from its data-label. The header row stays in the
+ * page for screen readers but is not shown.
+ */
+@media (max-width: 640px) {
+  .responsive thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .responsive,
+  .responsive tbody {
+    display: block;
+    width: 100%;
+  }
+
+  .responsive tbody tr:not(.group-row) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .responsive tbody tr:not(.group-row):last-child {
+    border-bottom: none;
+  }
+
+  .responsive td {
+    grid-column: 1 / -1;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    min-width: 0;
+    padding: 0;
+    border: none;
+    white-space: normal;
+    text-align: right;
+  }
+
+  .responsive td::before {
+    content: attr(data-label);
+    flex: none;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: left;
+  }
+
+  /* A plain block, so "okx / basic" keeps its spaces (a flex item would trim them). */
+  .responsive td.cell-primary {
+    grid-column: 1;
+    order: -2;
+    display: block;
+    font-weight: 600;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  .responsive td.cell-status {
+    grid-column: 2;
+    order: -1;
+  }
+
+  .responsive td.cell-primary::before,
+  .responsive td.cell-status::before {
+    content: none;
+  }
+
+  .sources td.result {
+    min-width: 0;
+  }
+
+  .sources .group-row,
+  .sources .group-row th {
+    display: block;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .quota-bar {
+    width: 96px;
+  }
+
+  .narrow-only {
+    display: inline;
+  }
+
+  /* A card line with nothing to say (no backoff, no monthly quota) is left out; the wide table keeps its dash. */
+  .responsive td.wide-only,
+  .responsive td.is-empty {
+    display: none;
+  }
+}
