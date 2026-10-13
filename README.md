@@ -71,6 +71,20 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | `npm run probe` | 量測目前金鑰實際可用的供應商功能 |
 | `npm run dev:web` | dashboard 開發伺服器（需要 API 同時執行） |
 
+## CI
+
+每個 pull request 與 `main` 的每次 push，都由 GitHub Actions（[.github/workflows/ci.yml](.github/workflows/ci.yml)）執行和本機相同的檢查：
+
+| CI 步驟 | 本機指令 |
+|---|---|
+| 安裝 | `npm ci`（只依 lockfile，不執行套件的 install script） |
+| 型別檢查 | `npm run typecheck` |
+| 建置 | `npm run build` |
+| 全部測試 | `npm test`（CI 使用 PostgreSQL 17 的 service container） |
+| Migration 冒煙測試 | `npm run migrate` 兩次，第二次必須回報已是最新 |
+
+CI 不使用任何 secret：測試從不連到真實供應商，資料庫是用完即丟的容器。Actions 以 commit SHA 釘住版本。CI 只在 Linux 上執行，`scripts/` 的 PowerShell 腳本不在 CI 涵蓋範圍內。
+
 ## 設定
 
 全部透過環境變數，範本在 [.env.example](.env.example)。不認得的 `MORROW_*` 變數會讓啟動失敗，所以打錯字不會悄悄退回預設值。
