@@ -121,3 +121,34 @@ test('two migrate runs at the same time apply each migration once', async (t) =>
   const rows = await db.pool.query('SELECT version FROM schema_migrations');
   assert.equal(rows.rowCount, files.length);
 });
+
+test('0003 turns a rejected request recorded as HEALTHY into REQUEST_REJECTED, and nothing else', async (t) => {
+  const db = await emptyDb(t);
+  const files = await loadMigrations();
+  const upTo0002 = await migrationsDir(
+    t,
+    Object.fromEntries(files.filter((file) => file.version <= 2).map((file) => [`${String(file.version).padStart(4, '0')}_${file.name}.sql`, file.sql])),
+  );
+  await migrate(db.pool, upTo0002);
+  await db.pool.query(
+    `INSERT INTO source_health (provider, capability, state, last_outcome, consecutive_failures, updated_at) VALUES
+       ('jupiter', 'tokens.recent', 'HEALTHY', 'NOT_FOUND', 0, '2026-10-12T01:00:00Z'),
+       ('okx', 'market.trades', 'HEALTHY', 'CLIENT_ERROR', 0, '2026-10-12T02:00:00Z'),
+       ('okx', 'token.holders', 'HEALTHY', 'OK', 0, '2026-10-12T03:00:00Z'),
+       ('helius', 'rpc.health', 'DOWN', 'TIMEOUT', 4, '2026-10-12T04:00:00Z')`,
+  );
+
+  await migrate(db.pool);
+  const rows = await db.pool.query<{ capability: string; state: string; consecutive_failures: number; last_failure_at: Date | null }>(
+    'SELECT capability, state, consecutive_failures, last_failure_at FROM source_health ORDER BY capability',
+  );
+  assert.deepEqual(
+    rows.rows.map((row) => [row.capability, row.state, row.consecutive_failures, row.last_failure_at?.toISOString() ?? null]),
+    [
+      ['market.trades', 'REQUEST_REJECTED', 1, '2026-10-12T02:00:00.000Z'],
+      ['rpc.health', 'DOWN', 4, null],
+      ['token.holders', 'HEALTHY', 0, null],
+      ['tokens.recent', 'REQUEST_REJECTED', 1, '2026-10-12T01:00:00.000Z'],
+    ],
+  );
+});

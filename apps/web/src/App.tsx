@@ -32,7 +32,9 @@ const GAP_LABELS: Record<HealthReport['recent_gaps'][number]['kind'], string> = 
   HEARTBEAT_STALL: '休眠或凍結',
 };
 
-function Badge({ tone, children }: { tone: 'good' | 'warn' | 'bad' | 'neutral'; children: ReactNode }) {
+type Tone = 'good' | 'warn' | 'bad' | 'critical' | 'neutral';
+
+function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
@@ -58,9 +60,50 @@ function stillBlocked(blockedUntil: string | null, now: string): boolean {
   return blockedUntil !== null && Date.parse(blockedUntil) > Date.parse(now);
 }
 
-function sourceTone(state: HealthReport['sources'][number]['state']): 'good' | 'warn' | 'bad' {
+function sourceTone(state: HealthReport['sources'][number]['state']): Tone {
   if (state === 'HEALTHY') return 'good';
-  return state === 'RATE_LIMITED' || state === 'CREDENTIAL_MISSING' ? 'warn' : 'bad';
+  return state === 'RATE_LIMITED' || state === 'CREDENTIAL_MISSING' || state === 'REQUEST_REJECTED' ? 'warn' : 'bad';
+}
+
+const LEVELS: Record<HealthReport['status'], { label: string; tone: Tone }> = {
+  ok: { label: '正常', tone: 'good' },
+  attention: { label: '需注意', tone: 'warn' },
+  degraded: { label: '異常', tone: 'bad' },
+  critical: { label: '嚴重', tone: 'critical' },
+};
+
+const FINDING_LABELS: Record<HealthReport['findings'][number]['code'], string> = {
+  DATABASE_UNREACHABLE: '無法連線到資料庫',
+  MIGRATION_STATE_INVALID: '資料庫的 migration 狀態與程式不符',
+  MIGRATIONS_PENDING: '有尚未套用的 migration',
+  STATUS_QUERY_FAILED: '無法讀取系統狀態',
+  SESSION_STALE: '程序心跳中斷',
+  WORKER_NOT_RUNNING: '沒有在執行的 worker，這個模式需要它來觀測',
+  SOURCE_DOWN: '資料來源無法使用',
+  SOURCE_RATE_LIMITED: '資料來源限流中',
+  SOURCE_UNAUTHORIZED: '憑證或地區被拒絕，需要人處理',
+  SOURCE_PAYMENT_REQUIRED: '需要付費方案（系統不會付款）',
+  SOURCE_REQUEST_REJECTED: '請求被供應商拒絕',
+  SOURCE_CREDENTIAL_MISSING: '沒有設定憑證',
+  QUOTA_WARN: '額度已過警告線',
+  QUOTA_HARD_STOP: '額度已達硬性上限，請求停止',
+  JOBS_DEAD: '有失敗終止的工作',
+};
+
+function Findings({ findings }: { findings: HealthReport['findings'] }) {
+  if (findings.length === 0) return null;
+  return (
+    <ul className="findings" aria-label="狀態原因">
+      {findings.map((finding, index) => (
+        <li key={`${finding.code}-${finding.subject ?? ''}-${index}`}>
+          <Badge tone={LEVELS[finding.severity].tone}>{LEVELS[finding.severity].label}</Badge>
+          <span>{FINDING_LABELS[finding.code]}</span>
+          {finding.subject ? <code>{finding.subject}</code> : null}
+          <span className="detail">{finding.detail}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function Report({ report }: { report: HealthReport }) {
@@ -68,11 +111,12 @@ function Report({ report }: { report: HealthReport }) {
   return (
     <>
       <div className="summary">
-        <Badge tone={report.status === 'ok' ? 'good' : 'warn'}>{report.status === 'ok' ? '運作正常' : '部分異常'}</Badge>
+        <Badge tone={LEVELS[report.status].tone}>{LEVELS[report.status].label}</Badge>
         <span>模式 {report.mode}</span>
         <span>版本 {report.version}</span>
         <span>伺服器時間 {formatTime(report.time)}（台北）</span>
       </div>
+      <Findings findings={report.findings} />
 
       <Section title="資料庫">
         <dl className="facts">
@@ -177,7 +221,11 @@ function Report({ report }: { report: HealthReport }) {
                   </td>
                   <td>
                     {source.last_outcome}
-                    {source.last_http_status !== null ? `（HTTP ${source.last_http_status}）` : ''}
+                    {source.last_http_status !== null || source.last_error_class !== null
+                      ? `（${[source.last_http_status !== null ? `HTTP ${source.last_http_status}` : null, source.last_error_class]
+                          .filter(Boolean)
+                          .join(' · ')}）`
+                      : ''}
                   </td>
                   <td>{formatTime(stillBlocked(source.blocked_until, report.time) ? source.blocked_until : null)}</td>
                   <td>{formatTime(source.last_success_at)}</td>

@@ -70,16 +70,13 @@ export function nextHealth(previous: SourceHealth | null, info: OutcomeInfo, now
       return null;
 
     case 'OK':
-    // The provider answered. A 404 or 400 is about the request, not the source.
+      return { ...base, state: 'HEALTHY', consecutiveFailures: 0, blockedUntil: null, lastSuccessAt: now };
+
+    // The provider answered, so it is reachable and there is nothing to back
+    // off from. But no data came back, so the capability is not healthy either.
     case 'NOT_FOUND':
     case 'CLIENT_ERROR':
-      return {
-        ...base,
-        state: 'HEALTHY',
-        consecutiveFailures: 0,
-        blockedUntil: null,
-        lastSuccessAt: info.outcome === 'OK' ? now : base.lastSuccessAt,
-      };
+      return { ...base, state: 'REQUEST_REJECTED', consecutiveFailures: failures, blockedUntil: null, lastFailureAt: now };
 
     case 'CREDENTIAL_MISSING':
       return { ...base, state: 'CREDENTIAL_MISSING', consecutiveFailures: 0, blockedUntil: null };
@@ -129,6 +126,7 @@ interface SourceHealthRow {
 
 const COLUMNS = `provider, capability, state, last_outcome, last_http_status, consecutive_failures,
                  blocked_until, last_success_at, last_failure_at, updated_at`;
+const COLUMNS_OF_S = COLUMNS.split(',').map((column) => `s.${column.trim()}`).join(', ');
 
 export async function readSourceHealth(db: Queryable, provider: string, capability: string): Promise<SourceHealth | null> {
   const result = await db.query<SourceHealthRow>(
@@ -186,7 +184,15 @@ export async function writeSourceHealth(
 }
 
 export async function listSourceHealth(db: Queryable): Promise<SourceHealthView[]> {
-  const result = await db.query<SourceHealthRow>(`SELECT ${COLUMNS} FROM source_health ORDER BY provider, capability`);
+  // The error class is read from the observation behind the last outcome. An
+  // outcome without a request (CREDENTIAL_MISSING) keeps an older observation
+  // id, so the outcomes must match for the class to belong to it.
+  const result = await db.query<SourceHealthRow & { error_class: string | null }>(
+    `SELECT ${COLUMNS_OF_S}, o.error_class
+       FROM source_health s
+       LEFT JOIN raw_observations o ON o.id = s.last_raw_observation_id AND o.outcome = s.last_outcome
+      ORDER BY s.provider, s.capability`,
+  );
   return result.rows.map((row) => ({
     provider: row.provider,
     capability: row.capability,
@@ -197,6 +203,7 @@ export async function listSourceHealth(db: Queryable): Promise<SourceHealthView[
     blocked_until: row.blocked_until?.toISOString() ?? null,
     last_success_at: row.last_success_at?.toISOString() ?? null,
     last_failure_at: row.last_failure_at?.toISOString() ?? null,
+    last_error_class: row.error_class,
     updated_at: row.updated_at.toISOString(),
   }));
 }
