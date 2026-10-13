@@ -216,7 +216,7 @@ function Report({ report }: { report: HealthReport }) {
               {report.sources.map((source) => (
                 <tr key={`${source.provider}/${source.capability}`}>
                   <td>{source.provider}</td>
-                  <td>{source.capability}</td>
+                  <td>{source.capability === '*' ? '全部功能（共用的 rate limit）' : source.capability}</td>
                   <td>
                     <Badge tone={sourceTone(source.state)}>{source.state}</Badge>
                   </td>

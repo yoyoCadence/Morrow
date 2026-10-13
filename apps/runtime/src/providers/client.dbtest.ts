@@ -482,3 +482,48 @@ test('probes record what each capability returned and skip unconfirmed endpoints
   );
   assert.deepEqual(audit.rows[0]?.detail.outcomes, { OK: 1, PAYMENT_REQUIRED: 1, ENDPOINT_UNVERIFIED: 1, CREDENTIAL_MISSING: 1 });
 });
+
+async function sharedHealth(provider: ProviderId) {
+  const result = await db.pool.query<{ state: string; blocked_until: Date | null }>(
+    "SELECT state, blocked_until FROM source_health WHERE provider = $1 AND capability = '*'",
+    [provider],
+  );
+  return result.rows[0];
+}
+
+test('a rate limit shared by every endpoint pauses all of that provider, and only that provider', async () => {
+  const { client, advance, now } = harness();
+  const limited = capability('jupiter');
+  const sibling = capability('jupiter');
+  const elsewhere = capability('helius');
+
+  assert.equal((await client.request({ capability: limited, spec: get('/rate'), reason: 'scheduled' })).outcome, 'RATE_LIMITED');
+  const shared = await sharedHealth('jupiter');
+  assert.equal(shared?.state, 'RATE_LIMITED');
+  assert.equal(shared?.blocked_until?.getTime(), now().getTime() + 120_000, 'Retry-After: 120 applies to the whole key');
+
+  const before = hitsFor('/ok-sibling').length;
+  const suppressed = await client.request({ capability: sibling, spec: get('/ok-sibling'), reason: 'probe' });
+  assert.deepEqual([suppressed.outcome, suppressed.rawObservationId], ['SUPPRESSED', null]);
+  assert.match(suppressed.detail ?? '', /jupiter is rate limited across all capabilities/);
+  assert.equal(hitsFor('/ok-sibling').length, before, 'nothing was sent for the other endpoint either');
+  assert.equal((await health(sibling)), undefined, 'the other capability has no outcome of its own');
+
+  // Another provider is not affected.
+  assert.equal((await client.request({ capability: elsewhere, spec: get('/ok-elsewhere'), reason: 'scheduled' })).outcome, 'OK');
+
+  advance(120_001);
+  assert.equal((await client.request({ capability: sibling, spec: get('/ok-sibling'), reason: 'scheduled' })).outcome, 'OK');
+  assert.equal((await sharedHealth('jupiter'))?.state, 'HEALTHY', 'a success after the pause clears it');
+});
+
+test('a provider whose endpoints have their own limits pauses only the endpoint that was limited', async () => {
+  const { client } = harness();
+  const limited = capability('dexscreener');
+  const sibling = capability('dexscreener');
+
+  assert.equal((await client.request({ capability: limited, spec: get('/rate'), reason: 'scheduled' })).outcome, 'RATE_LIMITED');
+  assert.equal(await sharedHealth('dexscreener'), undefined, 'no provider-wide record');
+  assert.equal((await client.request({ capability: sibling, spec: get('/ok'), reason: 'scheduled' })).outcome, 'OK');
+  assert.equal((await client.request({ capability: limited, spec: get('/ok'), reason: 'scheduled' })).outcome, 'SUPPRESSED');
+});

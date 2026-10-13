@@ -18,6 +18,8 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     // Free key: 1 request/s (developers.jup.ag/docs/portal/plans). The
     // blueprint caps us at 30/min, evenly spaced.
     minIntervalMs: 2_000,
+    // The 1 request/s belongs to the key, whichever endpoint is called.
+    rateLimitScope: 'provider',
     metered: false,
     authorize(spec, credentials) {
       if (!credentials.jupiter) return null;
@@ -33,6 +35,7 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     group: 'dexscreener',
     // Documented limits are 60 or 300 requests/min depending on the endpoint.
     minIntervalMs: 1_000,
+    rateLimitScope: 'capability',
     metered: false,
     authorize(spec) {
       // Keyless public API.
@@ -47,6 +50,9 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     id: 'okx',
     group: 'okx',
     minIntervalMs: 1_000,
+    // Not confirmed per endpoint. Until it is, a limit on one endpoint pauses
+    // all of them: asking too little is recoverable, being blocked may not be.
+    rateLimitScope: 'provider',
     metered: true,
     readEnvelope: readOkxEnvelope,
     authorize(spec, credentials, now) {
@@ -80,6 +86,8 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     // Enhanced APIs allow only 2/s; nothing calls them yet, and they would need
     // slower spacing than this.
     minIntervalMs: 250,
+    // Requests per second are counted per plan, across RPC methods.
+    rateLimitScope: 'provider',
     metered: true,
     authorize(spec, credentials) {
       if (!credentials.helius) return null;
