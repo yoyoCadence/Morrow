@@ -19,7 +19,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 依序執行。每一項是一個獨立的 PR，並在同一個 PR 內更新本檔與 PROJECT_STATUS。
 
-- [ ] **RV-01 Health 的新鮮度語意**（P0；R1、R2）— 心跳超過 `LIVENESS_THRESHOLD_MS` 的 `RUNNING` session 在 health 中標為過期（推導出來的狀態，不改寫 `run_sessions`）；`RESEARCH`／`PAPER` 模式下沒有新鮮的 worker 時，整體狀態不可為 `ok`。完成測試：心跳 10 分鐘前的 worker 使 health 降級並標出該 session；從未啟動 worker 時不是 `ok`；正常心跳不受影響。
 - [ ] **RV-02 Parser 單筆隔離**（P0；R3）— 單一 pair 不符合 `PairSnapshot` 時，該 pair 以 `SCHEMA_REJECTED` 進 quarantine，同一回應的其他 pair 照常產生事件；必然失敗的解析錯誤不重試 5 次。完成測試：`priceUsd` 為 `1e-120`、`1e+100`、97 位數的回應，正常的 pair 仍有事件；job 不進 `dead`。
 - [ ] **RV-03 來源狀態語意與四級整體狀態**（P0；R4、R8、D7）— **先以 Mode A 提出設計再實作**。`NOT_FOUND` 與 `CLIENT_ERROR`（包含 OKX envelope 錯誤）不可顯示為 `HEALTHY`；health 回應提供最近一次的 `error_class`；整體狀態分出「沒有憑證（需注意）」與「實際故障（異常／嚴重）」。若需要新的 `source_health.state`，以新的 migration 修改 CHECK。OKX `50101`／`50102` 的分類要等真實回應確認。完成測試：永遠回 404 的功能使整體狀態降級；只缺憑證時狀態與資料庫斷線不同。
 - [ ] **RV-04 資料庫逾時**（P0；R5）— Pool 設定 `connectionTimeoutMillis`、`keepAlive`，執行期連線設定 `statement_timeout`（migration 例外）；心跳本身有逾時，不會因為一次卡住就永久停止。完成測試：連到不可達位址在設定時間內失敗；超時的查詢被中止；心跳卡住後能恢復。
@@ -84,7 +83,7 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 依賴 RV-01／RV-03 提供的欄位。設計原則：這是操作工具，不是交易終端；視覺先回答「能不能相信這個畫面」，不做會誘發追高的動態效果（審查 §6）。
 
-- [ ] **UI-01 新鮮度與相對時間**（P1，需 RV-01；U1、U5）— 心跳、最近成功等改為「12 秒前」，完整時間放在 tooltip；過期的 session 顯示「疑似停止」；頁首顯示「上次更新」與更新指示點。
+- [ ] **UI-01 新鮮度與相對時間**（P1，需 RV-01；U1、U5）— 心跳、最近成功等改為「12 秒前」，完整時間放在 tooltip；過期 session 的紅色「心跳中斷」徽章已隨 RV-01 完成；頁首顯示「上次更新」與更新指示點。
 - [ ] **UI-02 頁首狀態列**（P1，需 RV-03；U4）— 四級整體狀態與對應顏色；小指標：worker 心跳、健康來源數、最高額度使用率、dead job 數；分頁標題與 favicon 隨狀態變化。
 - [ ] **UI-03 資料來源表**（P1，需 RV-03；U2、U6）— 修正 1280 px 下的截斷；依供應商分組、問題排最前面、「只看異常」篩選；顯示錯誤類別與額度桶；退避中顯示剩餘時間。
 - [ ] **UI-04 額度視覺**（P2；U7）— 自繪進度條標出警告線、硬性上限與供應商上限，顏色與狀態一致；依本月燃燒率推估達到硬性上限的日期。
@@ -124,3 +123,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] DEX Screener `tokens/v1` parser（`dexscreener-tokens@1`）與 `PairSnapshot` 契約：數字保留來源的完整位數，單位未確認的欄位進 quarantine。（PR #5，事後補記於 2026-10-13：合併時沒有列在看板上）
 - [x] 欄位層級 quarantine 的持久化：migration `0002_parse_quarantine`，隨第一個 parser 加入。（PR #5）
 - [x] 專案審查：架構、測試、UI、功能建議，結論見 [docs/reviews/2026-10-13-project-review.md](docs/reviews/2026-10-13-project-review.md)；可派工的項目已列入上方 `RV-`／`UI-`／`FT-`。（2026-10-13）
+- [x] **RV-01 Health 的新鮮度語意**（P0；R1、R2）— 心跳超過 `LIVENESS_THRESHOLD_MS` 的 `RUNNING` session 在 health 中標為過期（推導出來的狀態，不改寫 `run_sessions`）；`RESEARCH`／`PAPER` 模式下沒有新鮮的 worker 時，整體狀態不可為 `ok`。完成測試：心跳 10 分鐘前的 worker 使 health 降級並標出該 session；從未啟動 worker 時不是 `ok`；正常心跳不受影響。實作：`SessionView.liveness`（`LIVE`／`STALE`／`ENDED`，以資料庫時鐘計算）；`npm run stop` 對已沒有心跳的程序直接回報「not running」，不再等 30 秒；dashboard 顯示「心跳中斷」。（2026-10-13）

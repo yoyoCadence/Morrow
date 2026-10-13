@@ -46,6 +46,13 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   );
 }
 
+/** RUNNING is only shown as healthy while the session still heartbeats. */
+function SessionBadge({ session }: { session: HealthReport['sessions'][number] }) {
+  if (session.liveness === 'STALE') return <Badge tone="bad">心跳中斷</Badge>;
+  if (session.status === 'RUNNING') return <Badge tone="good">RUNNING</Badge>;
+  return <Badge tone={session.status === 'STOPPED' ? 'neutral' : 'bad'}>{session.status}</Badge>;
+}
+
 /** A backoff that has already ended is no longer worth showing. */
 function stillBlocked(blockedUntil: string | null, now: string): boolean {
   return blockedUntil !== null && Date.parse(blockedUntil) > Date.parse(now);
@@ -85,7 +92,7 @@ function Report({ report }: { report: HealthReport }) {
         </dl>
       </Section>
 
-      <Section title="程序" hint="每個元件最近一次的執行階段。">
+      <Section title="程序" hint="每個元件最近一次的執行階段。超過 30 秒沒有心跳的程序標為「心跳中斷」：它可能已當掉、被終止、凍結或休眠，這段期間沒有在觀測。">
         {report.sessions.length === 0 ? (
           <p className="empty">尚無執行紀錄。</p>
         ) : (
@@ -104,9 +111,7 @@ function Report({ report }: { report: HealthReport }) {
                 <tr key={session.id}>
                   <td>{session.component}</td>
                   <td>
-                    <Badge tone={session.status === 'RUNNING' ? 'good' : session.status === 'STOPPED' ? 'neutral' : 'bad'}>
-                      {session.status}
-                    </Badge>
+                    <SessionBadge session={session} />
                   </td>
                   <td>{session.mode}</td>
                   <td>{formatTime(session.started_at)}</td>

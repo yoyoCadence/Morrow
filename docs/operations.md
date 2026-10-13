@@ -137,6 +137,8 @@ Worker 需要能直接連到：
 | `Mode "..." is not enabled` | `MORROW_MODE` 不是 `OFF`、`RESEARCH`、`PAPER` |
 | `The database has N pending migration(s)` | 執行 `npm run migrate` |
 | `A worker session is already running` | 已經有一份在執行；用 `npm run stop -- worker` 停止 |
+| `npm run stop` 回報 `worker: not running. No heartbeat for ...` | 該程序已經當掉或被強制結束，沒有程序可以停止。下次啟動時會記錄一筆 `UNCLEAN_SHUTDOWN` 缺口 |
+| Dashboard 顯示「心跳中斷」 | 該程序超過 30 秒沒有心跳：當掉、被終止、凍結或機器休眠。重新啟動它 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
 | `ECONNREFUSED 127.0.0.1:54317` | 本機 PostgreSQL 沒有啟動：`.\scripts\pg-local.ps1 start` |

@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import { test, type TestContext } from 'node:test';
 import { createTestDb, type TestDb } from '../test-support/db.js';
-import { heartbeat, requestStop, SessionConflictError, startSession, stopSession, type StartSessionInput } from './run-session.js';
+import {
+  heartbeat,
+  LIVENESS_THRESHOLD_MS,
+  requestStop,
+  SessionConflictError,
+  startSession,
+  stopSession,
+  waitForStop,
+  type StartSessionInput,
+} from './run-session.js';
 
 async function freshDb(t: TestContext): Promise<TestDb> {
   const db = await createTestDb();
@@ -208,4 +217,33 @@ test('session changes are written to the audit log', async (t) => {
     audit.rows.map((row) => row.action),
     ['session.started', 'session.abandoned', 'session.started', 'session.stop_requested', 'session.stopped'],
   );
+});
+
+test('waiting for a stop: a clean stop, a silent process and a busy one are told apart', async (t) => {
+  const db = await freshDb(t);
+  assert.deepEqual(await waitForStop(db.pool, ['api', 'worker'], { timeoutMs: 100 }), [], 'nothing is running');
+
+  // The worker stops cleanly a moment after the request.
+  const worker = await startSession(db.pool, input());
+  await requestStop(db.pool, ['worker']);
+  setTimeout(() => void stopSession(db.pool, worker.sessionId, 'worker'), 50);
+  assert.deepEqual(await waitForStop(db.pool, ['worker'], { timeoutMs: 5_000, pollMs: 20 }), [
+    { component: 'worker', result: 'stopped' },
+  ]);
+
+  // The API was killed: RUNNING on record, silent for ten minutes. It is not waited on.
+  const api = await startSession(db.pool, input({ component: 'api' }));
+  await ageHeartbeat(db, api.sessionId, 600);
+  const started = Date.now();
+  const [silent] = await waitForStop(db.pool, ['api'], { timeoutMs: 5_000, pollMs: 20 });
+  assert.equal(silent?.result, 'not_running');
+  assert.ok(silent?.result === 'not_running' && silent.silentForMs > LIVENESS_THRESHOLD_MS);
+  assert.ok(Date.now() - started < 1_000, 'a dead process is reported at once, not after the timeout');
+
+  // A worker that keeps heartbeating but never stops.
+  await stopSession(db.pool, api.sessionId, 'api');
+  await startSession(db.pool, input({ pid: 7777 }));
+  assert.deepEqual(await waitForStop(db.pool, ['worker'], { timeoutMs: 100, pollMs: 20 }), [
+    { component: 'worker', result: 'still_running' },
+  ]);
 });

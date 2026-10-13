@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test, type TestContext } from 'node:test';
 import { HealthReport, type EnabledMode } from '@morrow/core';
+import { buildHealthReport } from '../api/health.js';
 import { buildApiServer } from '../api/server.js';
 import type { AppConfig } from '../config/config.js';
 import { createPool, withTransaction } from '../db/pool.js';
@@ -73,6 +74,9 @@ test('the API starts, serves a valid health report on loopback, and stops cleanl
   const db = await freshDb(t);
   const port = await freePort();
   const api = await startApiProcess(deps(db, 'PAPER', port));
+  // PAPER observes, and only the worker observes: without one, health is degraded.
+  const worker = await startWorkerProcess({ ...deps(db, 'PAPER'), handlers: new Map() });
+  defer(t, () => worker.stop('test'));
 
   const reply = await request(port);
   assert.equal(reply.status, 200);
@@ -82,7 +86,13 @@ test('the API starts, serves a valid health report on loopback, and stops cleanl
   assert.equal(report.live_trading_enabled, false);
   assert.equal(report.version, APP_VERSION);
   assert.deepEqual(report.database, { reachable: true, migrations_applied: report.database.migrations_applied, migrations_pending: 0, problem: null });
-  assert.deepEqual(report.sessions.map((session) => [session.component, session.status, session.mode]), [['api', 'RUNNING', 'PAPER']]);
+  assert.deepEqual(
+    report.sessions.map((session) => [session.component, session.status, session.liveness, session.mode]),
+    [
+      ['api', 'RUNNING', 'LIVE', 'PAPER'],
+      ['worker', 'RUNNING', 'LIVE', 'PAPER'],
+    ],
+  );
   assert.equal(report.status, 'ok');
   assert.equal(await sessionStatus(db, api.sessionId), 'RUNNING');
 
@@ -187,6 +197,8 @@ test('health is degraded, with the reason, when something is wrong', async (t) =
   defer(t, () => app.close());
   const read = async (): Promise<HealthReport> =>
     HealthReport.parse((await app.inject({ url: '/api/health', headers: { host: `127.0.0.1:${port}` } })).json());
+  // A worker that is heartbeating, so only the conditions below can degrade health.
+  await db.pool.query("INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test')");
 
   assert.equal((await read()).status, 'ok');
 
@@ -205,6 +217,37 @@ test('health is degraded, with the reason, when something is wrong', async (t) =
   report = await read();
   assert.equal(report.status, 'degraded');
   assert.equal(report.jobs.dead, 1);
+});
+
+test('a process that stopped heartbeating is reported, and so is a missing worker', async (t) => {
+  const db = await freshDb(t);
+  const report = async (mode: EnabledMode): Promise<HealthReport> =>
+    HealthReport.parse(await buildHealthReport({ pool: db.pool, mode, version: 'test' }));
+  const worker = async () => (await report('RESEARCH')).sessions.find((session) => session.component === 'worker');
+
+  // RESEARCH and PAPER exist to observe; with no worker nothing is observed.
+  assert.equal((await report('RESEARCH')).status, 'degraded');
+  assert.equal((await report('PAPER')).status, 'degraded');
+  assert.equal((await report('OFF')).status, 'ok', 'OFF does not observe, so no worker is expected');
+
+  const inserted = await db.pool.query<{ id: string }>(
+    "INSERT INTO run_sessions (component, mode, host, pid, app_version) VALUES ('worker', 'RESEARCH', 'test-host', 1, 'test') RETURNING id",
+  );
+  const sessionId = inserted.rows[0]?.id;
+  assert.equal((await report('RESEARCH')).status, 'ok');
+  assert.deepEqual([(await worker())?.status, (await worker())?.liveness], ['RUNNING', 'LIVE']);
+
+  // Killed: still recorded as RUNNING, but silent for ten minutes.
+  await db.pool.query("UPDATE run_sessions SET last_heartbeat_at = clock_timestamp() - interval '10 minutes' WHERE id = $1", [sessionId]);
+  assert.equal((await report('RESEARCH')).status, 'degraded');
+  assert.deepEqual([(await worker())?.status, (await worker())?.liveness], ['RUNNING', 'STALE']);
+  assert.equal((await report('OFF')).status, 'degraded', 'a silent process is a problem in every mode');
+
+  // Stopped cleanly: not stale, but RESEARCH still has no worker.
+  await db.pool.query("UPDATE run_sessions SET status = 'STOPPED', ended_at = clock_timestamp() WHERE id = $1", [sessionId]);
+  assert.equal((await worker())?.liveness, 'ENDED');
+  assert.equal((await report('RESEARCH')).status, 'degraded');
+  assert.equal((await report('OFF')).status, 'ok');
 });
 
 test('health says so when the schema is behind or the database is unreachable', async (t) => {

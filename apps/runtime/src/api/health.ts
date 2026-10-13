@@ -6,6 +6,7 @@ import { countJobs } from '../jobs/job-queue.js';
 import type { Logger } from '../logging/logger.js';
 import { listSourceHealth } from '../providers/source-health.js';
 import { getQuotaViews } from '../quota/quota-ledger.js';
+import { LIVENESS_THRESHOLD_MS } from '../session/run-session.js';
 
 export interface HealthInputs {
   readonly pool: pg.Pool;
@@ -16,6 +17,10 @@ export interface HealthInputs {
   readonly now?: () => Date;
 }
 
+/**
+ * The latest session of each component, with its liveness. Heartbeat age is
+ * measured on the database clock, the same clock that wrote the heartbeat.
+ */
 async function latestSessions(pool: pg.Pool): Promise<SessionView[]> {
   const result = await pool.query<{
     id: string;
@@ -25,15 +30,19 @@ async function latestSessions(pool: pg.Pool): Promise<SessionView[]> {
     started_at: Date;
     last_heartbeat_at: Date;
     ended_at: Date | null;
+    silent: boolean;
   }>(
-    `SELECT DISTINCT ON (component) id, component, mode, status, started_at, last_heartbeat_at, ended_at
+    `SELECT DISTINCT ON (component) id, component, mode, status, started_at, last_heartbeat_at, ended_at,
+            clock_timestamp() - last_heartbeat_at > make_interval(secs => $1::double precision / 1000) AS silent
        FROM run_sessions ORDER BY component, id DESC`,
+    [LIVENESS_THRESHOLD_MS],
   );
   return result.rows.map((row) => ({
     id: row.id,
     component: row.component,
     mode: row.mode,
     status: row.status,
+    liveness: row.status !== 'RUNNING' ? 'ENDED' : row.silent ? 'STALE' : 'LIVE',
     started_at: row.started_at.toISOString(),
     last_heartbeat_at: row.last_heartbeat_at.toISOString(),
     ended_at: row.ended_at?.toISOString() ?? null,
@@ -64,8 +73,9 @@ function errorLabel(error: unknown): string {
 /**
  * Collects the operator's view of the system. It reports what is wrong
  * without hiding it: an unreachable database, a schema that does not match
- * this build, a source that is not healthy, an exhausted budget or a dead job
- * all make the status `degraded`.
+ * this build, a source that is not healthy, an exhausted budget, a dead job,
+ * a process that stopped heartbeating, or no live worker in a mode that
+ * observes all make the status `degraded`.
  */
 export async function buildHealthReport(inputs: HealthInputs): Promise<HealthReport> {
   const now = (inputs.now ?? (() => new Date()))();
@@ -117,10 +127,15 @@ export async function buildHealthReport(inputs: HealthInputs): Promise<HealthRep
       getQuotaViews(inputs.pool, now),
       countJobs(inputs.pool),
     ]);
+    // RESEARCH and PAPER exist to observe, and only the worker observes.
+    const observing = inputs.mode !== 'OFF';
+    const workerLive = sessions.some((session) => session.component === 'worker' && session.liveness === 'LIVE');
     const degraded =
       sources.some((source) => source.state !== 'HEALTHY') ||
       quota.some((bucket) => bucket.state === 'HARD_STOP') ||
-      jobs.dead > 0;
+      jobs.dead > 0 ||
+      sessions.some((session) => session.liveness === 'STALE') ||
+      (observing && !workerLive);
     return {
       ...base,
       status: degraded ? 'degraded' : 'ok',
