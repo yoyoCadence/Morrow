@@ -527,3 +527,45 @@ test('a provider whose endpoints have their own limits pauses only the endpoint 
   assert.equal((await client.request({ capability: sibling, spec: get('/ok'), reason: 'scheduled' })).outcome, 'OK');
   assert.equal((await client.request({ capability: limited, spec: get('/ok'), reason: 'scheduled' })).outcome, 'SUPPRESSED');
 });
+
+test('a signed request is signed when it leaves, not when it started waiting for its turn', async () => {
+  const okx = { apiKey: 'okx-key-3c9e1d77', secretKey: 'okx-secret-8b20f4aa', passphrase: 'okx-pass-61d0c2e9' };
+  sequence += 1;
+  let clock = new Date(Date.UTC(2040 + sequence, 6, 15));
+  const client = new ProviderClient({
+    pool: db.pool,
+    logger: silentLogger,
+    credentials: { ...CREDENTIALS, okx },
+    redact: createRedactor([okx.apiKey, okx.secretKey, okx.passphrase]),
+    providers: { ...unpaced, okx: { ...PROVIDERS.okx, minIntervalMs: 5_000 } },
+    now: () => clock,
+    // The limiter's wait moves the clock forward, as real waiting would.
+    sleep: async (ms) => {
+      clock = new Date(clock.getTime() + ms);
+    },
+  });
+  const cap = capability('okx', { quotaBucket: 'basic' });
+
+  await client.request({ capability: cap, spec: get('/envelope-ok'), reason: 'scheduled' });
+  const queuedAt = clock.getTime();
+  await client.request({ capability: cap, spec: get('/envelope-ok'), reason: 'scheduled' });
+
+  const [, second] = hitsFor('/envelope-ok').slice(-2);
+  assert.equal(second?.headers['ok-access-timestamp'], new Date(queuedAt + 5_000).toISOString(), 'stamped after the 5 s wait');
+});
+
+test("the provider's Date header is kept with the observation", async () => {
+  const { client } = harness();
+  const cap = capability('dexscreener');
+  const before = Date.now();
+  const result = await client.request({ capability: cap, spec: get('/ok'), reason: 'scheduled' });
+  const row = await db.pool.query<{ server_date: Date | null }>('SELECT server_date FROM raw_observations WHERE id = $1', [result.rawObservationId]);
+  const serverDate = row.rows[0]?.server_date;
+  assert.ok(serverDate instanceof Date, 'the local test server sends a Date header, as real servers do');
+  // A Date header has one-second resolution.
+  assert.ok(Math.abs(serverDate.getTime() - before) < 5_000);
+
+  const failedRequest = await client.request({ capability: capability('dexscreener'), spec: get('/ok', closedOrigin), reason: 'scheduled' });
+  const none = await db.pool.query<{ server_date: Date | null }>('SELECT server_date FROM raw_observations WHERE id = $1', [failedRequest.rawObservationId]);
+  assert.equal(none.rows[0]?.server_date, null, 'no response, no provider time');
+});

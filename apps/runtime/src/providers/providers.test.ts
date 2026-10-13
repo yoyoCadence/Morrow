@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { ProviderCredentials } from '../config/config.js';
 import { QUOTA_POLICIES } from '../quota/quota-ledger.js';
-import { classifyFetchError, classifyStatus, parseRetryAfterMs } from './client.js';
+import { classifyFetchError, classifyStatus, parseRetryAfterMs, parseServerDate } from './client.js';
 import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
@@ -61,6 +61,12 @@ test('timeouts and other failures are told apart', () => {
     { outcome: 'NETWORK_ERROR', errorClass: 'ECONNREFUSED' },
   );
   assert.equal(classifyFetchError('weird').outcome, 'NETWORK_ERROR');
+});
+
+test('a Date header becomes a time, and anything else is no time', () => {
+  assert.equal(parseServerDate('Tue, 13 Oct 2026 14:30:00 GMT')?.toISOString(), '2026-10-13T14:30:00.000Z');
+  assert.equal(parseServerDate(null), null);
+  assert.equal(parseServerDate('soon'), null);
 });
 
 test('Retry-After accepts seconds and HTTP dates', () => {

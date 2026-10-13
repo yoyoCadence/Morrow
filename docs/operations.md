@@ -139,6 +139,7 @@ Worker 需要能直接連到：
 | `A worker session is already running` | 已經有一份在執行；用 `npm run stop -- worker` 停止 |
 | `npm run stop` 回報 `worker: not running. No heartbeat for ...` | 該程序已經當掉或被強制結束，沒有程序可以停止。下次啟動時會記錄一筆 `UNCLEAN_SHUTDOWN` 缺口 |
 | Dashboard 顯示「心跳中斷」 | 該程序超過 30 秒沒有心跳：當掉、被終止、凍結或機器休眠。重新啟動它 |
+| 「本機時鐘與供應商的時間不一致」 | 本機時鐘與供應商回應的 `Date` 差了超過 5 秒（超過 30 秒為異常）。讓系統校時（Windows：設定 → 時間與語言 → 立即同步）。偏移過大時，OKX 的簽章請求會被拒絕 |
 | 整體狀態「需注意」 | 系統可以運作，但有設定不完整（例如沒有憑證）或接近上限的地方。頁首列出每一個原因 |
 | 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`。一直出現時，通常是端點或參數有誤 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |

@@ -64,7 +64,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 ### 審查發現 — M2 之前完成
 
-- [ ] **RV-09 簽章時間與時鐘偏移**（P1；R9、D6）— OKX 在節流等待之後才簽章；記錄供應商回應 `Date` header 與本機時間的差，超過門檻時依藍圖 fail-safe 停止依賴新鮮度的工作。完成測試：等待期間時間前進時，簽章使用送出當下的時間；偏移超過門檻會反映在 health。
 - [ ] **RV-10 PR 範本與文件同步**（P1；審查 §9）— 新增 `.github/pull_request_template.md`：對應的任務 ID、是否更新 tasks.md／PROJECT_STATUS／架構文件、驗證指令輸出。
 - [ ] **RV-11 Lint 與 format**（P2）— 加入 Biome（單一 dev 相依），先只格式化，再逐步開規則；與 RV-05 一起在 CI 執行。
 - [ ] **RV-12 Worker 的兩條隊伍與租約續租**（P1；D2、D3）— 同一個 worker 程序內分成「供應商請求」與「本機運算（parse 等）」兩個迴圈，節流器仍只有一份；長時間的 job 定期續租。完成測試：慢速供應商不會延遲 parse job；長 job 不會被重新派發。
@@ -124,3 +123,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **RV-06 矛盾資料可見**（P1；R6）— 相同 `dedupe_key`、不同 payload 時，記錄衝突（獨立的 append-only 表或 audit），不再靜默丟棄。完成測試：相同內容重送仍是 no-op；不同內容留下可查詢的衝突紀錄。實作：`events.fact_sha256`（只涵蓋事實本身，不含 provenance 與 `observed_at`）與 append-only 的 `event_conflicts`（migration `0004`）；health 對近 24 小時的矛盾給出 `EVENT_CONFLICTS`（需注意）。0004 之前存的事件沒有 hash，比對時由已存的欄位推導，結果與寫入時計算的相同。（2026-10-13）
 - [x] **RV-07 `confidence` 精度一致**（P1；R7）— 契約限制最多 6 位小數，與 `numeric(7,6)` 一致；目前沒有 producer，不需要轉換舊資料。完成測試：7 位小數在寫入前被拒絕。（2026-10-13）
 - [x] **RV-08 Provider 層級退避**（P1；D1）— 帳號共用的限制（Jupiter、Helius 的 429）暫停整個供應商；方案或權限造成的錯誤仍以功能為單位。完成測試：一個 Jupiter 功能被 429 時，另一個 Jupiter 功能被 `SUPPRESSED`。實作：`ProviderDefinition.rateLimitScope`；共用限制記錄在 capability 為 `*` 的 `source_health` 列，只追蹤 rate limit，下一次成功就清除。OKX 的限流範圍尚未確認，先保守地視為整個供應商。（2026-10-13）
+- [x] **RV-09 簽章時間與時鐘偏移**（P1；R9、D6）— OKX 在節流等待之後才簽章；記錄供應商回應 `Date` header 與本機時間的差，超過門檻時依藍圖 fail-safe 停止依賴新鮮度的工作。完成測試：等待期間時間前進時，簽章使用送出當下的時間；偏移超過門檻會反映在 health。實作：節流等待之後才以當下時間重新授權；`raw_observations.server_date`（migration `0005`）；health 的 `clock.skew_ms` 為近期回應的中位數，樣本不足時為 null；超過 5 秒需注意、超過 30 秒異常。「停止依賴新鮮度的工作」要隨第一個這類工作加入，目前還沒有。（2026-10-13）

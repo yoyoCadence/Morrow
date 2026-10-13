@@ -138,6 +138,15 @@ interface Attempt {
   readonly contentType: string | null;
   readonly errorClass: string | null;
   readonly errorDetail: string | null;
+  /** The provider's clock, from the Date header. */
+  readonly serverDate: Date | null;
+}
+
+/** A Date header as a time, or null when it is absent or not a date. */
+export function parseServerDate(header: string | null): Date | null {
+  if (header === null) return null;
+  const ms = Date.parse(header);
+  return Number.isNaN(ms) ? null : new Date(ms);
 }
 
 /**
@@ -181,8 +190,8 @@ export class ProviderClient {
       return notSent('SUPPRESSED', `${provider.id} is rate limited across all capabilities`);
     }
 
-    const authorized = provider.authorize(spec, credentials, startedAt);
-    if (!authorized) {
+    // Checked before quota is charged: without credentials nothing is sent.
+    if (!provider.authorize(spec, credentials, startedAt)) {
       const next = nextHealth(health, { outcome: 'CREDENTIAL_MISSING', httpStatus: null, retryAfterMs: null }, startedAt);
       if (next) await writeSourceHealth(pool, provider.id, capability.capability, next, null);
       return notSent('CREDENTIAL_MISSING', 'credentials for this provider are not configured');
@@ -207,7 +216,12 @@ export class ProviderClient {
 
     await this.#limiter(provider).acquire();
 
+    // Authorised again now, after any wait: a signature carries the time it
+    // was made (OKX rejects one outside a short window), so it must be made
+    // when the request leaves, not when it started queueing.
     const sentAt = this.#now();
+    const authorized = provider.authorize(spec, credentials, sentAt);
+    if (!authorized) throw new Error(`${provider.id} credentials disappeared while the request was queued`);
     const attempt = await this.#send(provider, authorized, spec.method);
     const observedAt = this.#now();
 
@@ -228,6 +242,7 @@ export class ProviderClient {
         errorDetail: attempt.errorDetail,
         durationMs: Math.max(0, observedAt.getTime() - sentAt.getTime()),
         observedAt,
+        serverDate: attempt.serverDate,
         runSessionId: this.#options.getRunSessionId?.() ?? null,
       });
       const next = nextHealth(health, attempt.info, observedAt);
@@ -286,6 +301,7 @@ export class ProviderClient {
         contentType: response.headers.get('content-type'),
         errorClass: verdict?.errorClass ?? null,
         errorDetail: verdict ? this.#options.redact(verdict.errorDetail).slice(0, 1000) : null,
+        serverDate: parseServerDate(response.headers.get('date')),
       };
     } catch (error) {
       if (error instanceof ResponseTooLargeError) {
@@ -321,6 +337,7 @@ function failed(outcome: RequestOutcome, errorClass: string, errorDetail: string
     contentType: null,
     errorClass,
     errorDetail: errorDetail.slice(0, 1000),
+    serverDate: null,
   };
 }
 
