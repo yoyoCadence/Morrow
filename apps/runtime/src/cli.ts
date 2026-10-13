@@ -5,6 +5,7 @@ import { SchemaNotCurrentError, startApiProcess, startWorkerProcess, type Runnin
 import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { migrate, MigrationError } from './db/migrate.js';
 import { createPool, isConnectionTimeout, type PoolOptions } from './db/pool.js';
+import { formatStorageReport, measureStorage } from './db/storage.js';
 import { enqueueJob, getJobState } from './jobs/job-queue.js';
 import { sleep } from './jobs/worker.js';
 import { createLogger } from './logging/logger.js';
@@ -23,6 +24,7 @@ Usage: morrow <command>
   stop [api|worker]  Ask running processes to shut down cleanly (default: both).
   probe              Measure what the configured provider credentials can use.
   status             Print the health report as JSON.
+  storage            Print the size and daily growth of each table.
 `;
 
 function print(text: string): void {
@@ -161,6 +163,19 @@ async function commandStatus(config: AppConfig): Promise<number> {
   });
 }
 
+async function commandStorage(config: AppConfig): Promise<number> {
+  // Counting rows scans every table, which can outlast the default 30 s on a large database.
+  return withPool(
+    config,
+    'storage',
+    async (pool) => {
+      print(formatStorageReport(await measureStorage(pool)));
+      return 0;
+    },
+    { statementTimeoutMs: 300_000 },
+  );
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, argument] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
@@ -174,6 +189,7 @@ async function main(argv: readonly string[]): Promise<number> {
     stop: (config) => commandStop(config, argument),
     probe: commandProbe,
     status: commandStatus,
+    storage: commandStorage,
   };
   const run = commands[command];
   if (!run) {

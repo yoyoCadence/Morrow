@@ -25,6 +25,7 @@
     "stop": "node --env-file-if-exists=.env apps/runtime/dist/cli.js stop",
     "probe": "node --env-file-if-exists=.env apps/runtime/dist/cli.js probe",
     "status": "node --env-file-if-exists=.env apps/runtime/dist/cli.js status",
+    "storage": "node --env-file-if-exists=.env apps/runtime/dist/cli.js storage",
     "dev:web": "npm run dev -w @morrow/web"
   },
   "devDependencies": {

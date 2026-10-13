@@ -70,6 +70,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | `npm run api` / `npm run worker` | 啟動 API／worker |
 | `npm run stop [-- api\|worker]` | 請執行中的程序乾淨停止 |
 | `npm run status` | 以 JSON 輸出健康狀態；只有 `ok` 時 exit 0 |
+| `npm run storage` | 各資料表的大小與近 24 小時的成長（會掃描每張表，資料多時要等一下） |
 | `npm run probe` | 量測目前金鑰實際可用的供應商功能 |
 | `npm run dev:web` | dashboard 開發伺服器（需要 API 同時執行） |
 
