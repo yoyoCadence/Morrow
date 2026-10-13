@@ -1,5 +1,6 @@
 import type { HealthReport } from '@morrow/core';
 import { useEffect, useState, type ReactNode } from 'react';
+import { describeProjection, projectHardStop } from './quota';
 import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources';
 import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status';
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
@@ -54,6 +55,30 @@ function SessionBadge({ session }: { session: HealthReport['sessions'][number] }
 /** A backoff that has already ended is no longer worth showing. */
 function stillBlocked(blockedUntil: string | null, now: number): boolean {
   return blockedUntil !== null && Date.parse(blockedUntil) > now;
+}
+
+const QUOTA_TONE: Record<HealthReport['quota'][number]['state'], Tone> = { OK: 'good', WARN: 'warn', HARD_STOP: 'bad' };
+
+/**
+ * Use so far against the provider's own limit (the full width), with the
+ * warning line and the local hard stop marked. Drawn in SVG, so it needs no
+ * inline styles under the API's content security policy.
+ */
+function QuotaBar({ bucket }: { bucket: HealthReport['quota'][number] }) {
+  const scale = Math.max(bucket.source_limit, bucket.hard_stop_at, bucket.used, 1);
+  const at = (value: number): number => Math.min(100, (value / scale) * 100);
+  const label =
+    `已用 ${wholeNumber.format(bucket.used)}，警告線 ${wholeNumber.format(bucket.warn_at)}，` +
+    `硬性上限 ${wholeNumber.format(bucket.hard_stop_at)}，供應商上限 ${wholeNumber.format(bucket.source_limit)}`;
+  return (
+    <svg className={`quota-bar quota-${QUOTA_TONE[bucket.state]}`} viewBox="0 0 100 12" preserveAspectRatio="none" role="img" aria-label={label}>
+      <title>{label}</title>
+      <rect className="quota-track" x="0" y="3" width="100" height="6" />
+      <rect className="quota-fill" x="0" y="3" width={at(bucket.used)} height="6" />
+      <line className="quota-mark-warn" x1={at(bucket.warn_at)} x2={at(bucket.warn_at)} y1="0" y2="12" vectorEffect="non-scaling-stroke" />
+      <line className="quota-mark-hard" x1={at(bucket.hard_stop_at)} x2={at(bucket.hard_stop_at)} y1="0" y2="12" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
 }
 
 // The "only issues" choice is a per-browser convenience; without storage it simply starts unticked.
@@ -336,8 +361,11 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
 
       <SourcesSection report={report} now={now} />
 
-      <Section title="額度" hint="本月用量。到達硬性上限後系統自行停止請求，不付費、不換帳號。">
-        <table>
+      <Section
+        title="額度"
+        hint="本月用量。條的全長是供應商上限；條上第一道刻度是警告線，第二道是硬性上限。到達硬性上限後系統自行停止請求，不付費、不換帳號。推估以本月到目前的平均速度計算，關機的時間也算在內。"
+      >
+        <table className="quota">
           <thead>
             <tr>
               <th>供應商</th>
@@ -345,6 +373,8 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
               <th>用量</th>
               <th>警告線</th>
               <th>硬性上限</th>
+              <th>供應商上限</th>
+              <th>依目前速度</th>
               <th>狀態</th>
             </tr>
           </thead>
@@ -354,13 +384,17 @@ function Report({ report, now }: { report: HealthReport; now: number }) {
                 <td>{bucket.provider}</td>
                 <td>{bucket.bucket}</td>
                 <td>
-                  <meter min={0} max={bucket.hard_stop_at} high={bucket.warn_at} optimum={0} value={bucket.used} />{' '}
-                  {wholeNumber.format(bucket.used)}
+                  <span className="quota-used">
+                    <QuotaBar bucket={bucket} />
+                    {wholeNumber.format(bucket.used)}
+                  </span>
                 </td>
                 <td>{wholeNumber.format(bucket.warn_at)}</td>
                 <td>{wholeNumber.format(bucket.hard_stop_at)}</td>
+                <td>{wholeNumber.format(bucket.source_limit)}</td>
+                <td>{describeProjection(projectHardStop(bucket, now))}</td>
                 <td>
-                  <Badge tone={bucket.state === 'OK' ? 'good' : bucket.state === 'WARN' ? 'warn' : 'bad'}>{bucket.state}</Badge>
+                  <Badge tone={QUOTA_TONE[bucket.state]}>{bucket.state}</Badge>
                 </td>
               </tr>
             ))}

@@ -79,6 +79,12 @@ export const QuotaView = z.strictObject({
   used: z.number().int().min(0),
   warn_at: z.number().int(),
   hard_stop_at: z.number().int(),
+  /**
+   * The provider's own monthly allowance for this bucket, as the blueprint
+   * records it. The local hard stop sits below it, so the provider's limit
+   * is never what stops us.
+   */
+  source_limit: z.number().int(),
   state: z.enum(['OK', 'WARN', 'HARD_STOP']),
 });
 export type QuotaView = z.infer<typeof QuotaView>;
