@@ -46,7 +46,17 @@ export const EventSubject = z
     'expected an asset id or a system:/provider:/portfolio: reference',
   );
 
-const Confidence = DecimalString.refine(isWithinUnitInterval, 'confidence must be within [0, 1]');
+/**
+ * Decimal places a confidence may have. events.confidence is numeric(7,6),
+ * and PostgreSQL rounds anything finer without an error; a contract that
+ * accepted more would have its values silently rewritten on storage.
+ */
+export const CONFIDENCE_MAX_FRACTION_DIGITS = 6;
+
+const Confidence = DecimalString.refine(isWithinUnitInterval, 'confidence must be within [0, 1]').refine(
+  (value) => (value.split('.')[1]?.length ?? 0) <= CONFIDENCE_MAX_FRACTION_DIGITS,
+  `confidence has at most ${CONFIDENCE_MAX_FRACTION_DIGITS} decimal places`,
+);
 
 /** The fields a producer supplies. `event_id` and `available_at` are assigned on append. */
 export const NewEvent = z.strictObject({

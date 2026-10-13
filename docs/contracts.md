@@ -76,7 +76,7 @@
 | `observed_at`、`available_at` | `available_at` 由資料庫在寫入時指定 |
 | `provenance` | 見下 |
 | `severity` | `INFO`、`NOTICE`、`WARNING`、`CRITICAL` |
-| `confidence` | [0, 1] 的十進位字串，或 null。Null 表示沒有評估過，不是預設為 1 |
+| `confidence` | [0, 1] 的十進位字串，最多 6 位小數（與資料庫欄位 `numeric(7,6)` 一致，更細的值會被拒絕，不會被四捨五入），或 null。Null 表示沒有評估過，不是預設為 1 |
 | `causation_id`、`correlation_id` | 事件之間的關聯 |
 
 同一個 `dedupe_key` 再次寫入，若說的是同一個事實，是 no-op；若內容不同，就是矛盾，記錄在 `event_conflicts`（RV-06），不取代已存的事件。「同一個事實」由 `eventFactSha256()` 判斷：只看 domain、action、subject、payload（含 `payload_version`）與 `event_time`（到毫秒）；不看 provenance 與 `observed_at`，因為它們描述的是我們如何得知；也不看 `schema_version`，因為它描述的是編碼方式，不是發生了什麼。多個來源回報同一個事實時如何保存各自的佐證，仍未處理（tasks.md Backlog）。
