@@ -43,7 +43,7 @@
 
 ### Automated
 
-`npm test`：**202 個測試全部通過**，其中 93 個不需要資料庫，109 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
+`npm test`：**204 個測試全部通過**，其中 95 個不需要資料庫，109 個對真實的 PostgreSQL 執行。每個資料庫測試檔使用自己的 schema，結束後刪除。（M0 交付時為 148 個；E1.0 新增 5 個，見下方「其他涵蓋」；PR #5 的 DEX Screener parser 新增 17 個。2026-10-13 的審查在 Linux、Node 24.19.0、PostgreSQL 16.15 上重跑，170 個全部通過；之後的審查修正見下方。）
 
 #### 審查修正（2026-10-13 起）
 
@@ -63,6 +63,7 @@
 | RV-10 PR 範本 | `.github/pull_request_template.md`：對應任務、變更、原因、實際執行的驗證、文件與看板的勾選項（tasks.md、PROJECT_STATUS、架構與契約文件、migration 不可修改）、風險、下一步 | 文件變更；這個 PR 本身就是用新範本的結構撰寫 |
 | RV-11 Lint | Biome 2.5.15 只作 linter，CI 執行 `npm run lint`；recommended 規則，關掉 2 個純風格規則；修正 3 個問題（隱含 any、`forEach` 回傳值、React 以 index 當 key）。全域格式化會改寫 31 個檔案，依 AGENTS.md §2 待操作人決定（RV-11b） | `npm run lint` 無錯誤；202 個測試全過，parser 的輸出不變（決定性測試） |
 | RV-14 開發相依弱點 | `source-map-js` 1.2.1 → 1.2.2（只改 lockfile；經 vite → postcss，只在建置時使用） | `npm audit`：0 個弱點；`npm run build` 通過 |
+| RV-15 API 請求日誌 | 每個請求只在完成時寫一行；成功的讀取記 debug，Host／Origin 被拒記 warn，其他拒絕與非讀取記 info，5xx 記 error。預設的 info 層級下，健康輪詢不再寫日誌 | 新增 2 個不需資料庫的測試（各狀態的層級、整條請求的實際輸出）；拿掉 controller 時測試失敗；204 個測試全過 |
 
 | M0 門檻／story 的完成測試 | 對應的測試 |
 |---|---|
