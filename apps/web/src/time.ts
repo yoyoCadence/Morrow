@@ -35,11 +35,14 @@ export function formatRelative(targetMs: number, nowMs: number): string {
 
 /**
  * The server's current time, estimated from the report's own timestamp plus
- * the time that has passed here since it arrived. Relative times computed
- * against this stay right even when the browser's clock is off.
+ * the time that has passed here since the request was sent. Relative times
+ * computed against this do not depend on the browser's clock. Counting from
+ * the request rather than the answer errs on the safe side: the report was
+ * stamped after the request went out, so a slow answer makes heartbeats look
+ * older, never fresher, than they are.
  */
-export function serverNow(reportTimeIso: string, fetchedAtMs: number, nowMs: number): number {
-  return Date.parse(reportTimeIso) + Math.max(0, nowMs - fetchedAtMs);
+export function serverNow(reportTimeIso: string, requestedAtMs: number, nowMs: number): number {
+  return Date.parse(reportTimeIso) + Math.max(0, nowMs - requestedAtMs);
 }
 
 export type Freshness = 'fresh' | 'late' | 'stale';
