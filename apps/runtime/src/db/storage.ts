@@ -45,8 +45,14 @@ export interface StorageReport {
   readonly databaseBytes: number;
   /** Largest first. */
   readonly tables: readonly TableStorage[];
-  /** Sum of the known daily growth; null when no table's growth is known. */
-  readonly bytesLastDay: number | null;
+  /**
+   * Growth in the last 24 hours of the tables whose growth is known. It is
+   * not the database's total: `unknownGrowth` names the tables left out.
+   * Null when no table's growth is known.
+   */
+  readonly knownBytesLastDay: number | null;
+  /** Tables whose growth is unknown, so not part of `knownBytesLastDay`. */
+  readonly unknownGrowth: readonly string[];
 }
 
 /**
@@ -89,7 +95,11 @@ export async function measureStorage(db: Queryable): Promise<StorageReport> {
     measuredAt: database.rows[0]?.now ?? new Date(),
     databaseBytes: Number(database.rows[0]?.bytes ?? 0),
     tables,
-    bytesLastDay: known.length === 0 ? null : known.reduce((sum, table) => sum + (table.bytesLastDay ?? 0), 0),
+    knownBytesLastDay: known.length === 0 ? null : known.reduce((sum, table) => sum + (table.bytesLastDay ?? 0), 0),
+    unknownGrowth: tables
+      .filter((table) => table.bytesLastDay === null)
+      .map((table) => table.table)
+      .sort(),
   };
 }
 
@@ -118,15 +128,22 @@ export function formatStorageReport(report: StorageReport): string {
   const widths = header.map((title, column) => Math.max(title.length, ...body.map((row) => (row[column] ?? '').length)));
   const line = (cells: readonly string[]): string =>
     cells.map((cell, column) => (column === 0 ? cell.padEnd(widths[column] ?? 0) : cell.padStart(widths[column] ?? 0))).join('  ');
-  const daily = report.bytesLastDay;
+  const daily = report.knownBytesLastDay;
+  const unknown = report.unknownGrowth;
+  // A sum that leaves tables out says so, and names them: unknown is not zero.
+  const growth =
+    daily === null
+      ? 'Growth in the last 24 hours: unknown for every table.'
+      : unknown.length === 0
+        ? `Growth in the last 24 hours: ${formatBytes(daily)}; at that rate, ${formatBytes(daily * 30)} per 30 days.`
+        : `Growth in the last 24 hours, tables with known growth only: ${formatBytes(daily)}; at that rate, ` +
+          `${formatBytes(daily * 30)} per 30 days. Not included (growth unknown): ${unknown.join(', ')}.`;
   return [
     line(header),
     ...body.map(line),
     '',
     `Database total: ${formatBytes(report.databaseBytes)} (measured ${report.measuredAt.toISOString()})`,
-    daily === null
-      ? 'Growth: unknown.'
-      : `Growth in the last 24 hours: ${formatBytes(daily)}; at that rate, ${formatBytes(daily * 30)} per 30 days.`,
+    growth,
     '"?" means the table has no time column, so its growth is unknown.',
   ].join('\n');
 }
