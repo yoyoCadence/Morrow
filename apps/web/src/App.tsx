@@ -1,5 +1,6 @@
 import type { HealthReport } from '@morrow/core';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status';
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time';
 import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth';
 
@@ -17,8 +18,6 @@ const GAP_LABELS: Record<HealthReport['recent_gaps'][number]['kind'], string> = 
   OFFLINE: '離線',
   HEARTBEAT_STALL: '休眠或凍結',
 };
-
-type Tone = 'good' | 'warn' | 'bad' | 'critical' | 'neutral';
 
 function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
@@ -60,13 +59,6 @@ function sourceTone(state: HealthReport['sources'][number]['state']): Tone {
   if (state === 'HEALTHY') return 'good';
   return state === 'RATE_LIMITED' || state === 'CREDENTIAL_MISSING' || state === 'REQUEST_REJECTED' ? 'warn' : 'bad';
 }
-
-const LEVELS: Record<HealthReport['status'], { label: string; tone: Tone }> = {
-  ok: { label: '正常', tone: 'good' },
-  attention: { label: '需注意', tone: 'warn' },
-  degraded: { label: '異常', tone: 'bad' },
-  critical: { label: '嚴重', tone: 'critical' },
-};
 
 const FINDING_LABELS: Record<HealthReport['findings'][number]['code'], string> = {
   DATABASE_UNREACHABLE: '無法連線到資料庫',
@@ -111,13 +103,49 @@ function Findings({ findings }: { findings: HealthReport['findings'] }) {
   );
 }
 
+/**
+ * The overall status, worst finding first, and four small facts: is the
+ * worker heartbeating, how many sources are healthy, how close the fullest
+ * quota is to its hard stop, and how many jobs failed for good. Each fact is
+ * written out; the colour only repeats it.
+ */
+function StatusBar({ report, now }: { report: HealthReport; now: number }) {
+  const level = LEVELS[report.status];
+  const reasons = report.findings.length;
+  return (
+    <section className={`status-bar status-${level.tone}`} aria-label="整體狀態">
+      <p className="status-level">
+        <strong>{level.label}</strong>
+        <span>{reasons === 0 ? '沒有需要處理的項目' : `${reasons} 個原因，見下方`}</span>
+      </p>
+      <ul className="indicators">
+        {indicators(report, now).map((indicator) => (
+          <li key={indicator.key} className={`indicator indicator-${indicator.tone}`}>
+            <span className={`dot dot-${indicator.tone}`} aria-hidden="true" />
+            {indicator.text}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Keeps the tab title and favicon in step with the page, so the state shows from another tab. */
+function useTabState(state: PageState): void {
+  useEffect(() => {
+    document.title = pageTitle(state);
+    const icon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (icon) icon.href = faviconPath(state);
+  }, [state]);
+}
+
 /** `now` is the server's current time (see `serverNow`), so relative times do not depend on this browser's clock. */
 function Report({ report, now }: { report: HealthReport; now: number }) {
   const { database } = report;
   return (
     <>
+      <StatusBar report={report} now={now} />
       <div className="summary">
-        <Badge tone={LEVELS[report.status].tone}>{LEVELS[report.status].label}</Badge>
         <span>模式 {report.mode}</span>
         <span>版本 {report.version}</span>
         <span>伺服器時間 {formatTime(report.time)}（台北）</span>
@@ -327,6 +355,7 @@ export function App() {
   const now = useNow();
   const received = health.kind === 'ready' ? health : health.kind === 'unreachable' ? health.last : null;
   const report = received?.report ?? null;
+  useTabState(health.kind === 'ready' ? health.report.status : health.kind);
 
   return (
     <main>

@@ -90,8 +90,93 @@ header h1 {
   background: var(--warn);
 }
 
-.dot-bad {
+.dot-bad,
+.dot-critical {
   background: var(--bad);
+}
+
+.dot-neutral {
+  background: var(--muted);
+}
+
+/* Overall status: the level in words, tinted by tone, with a solid edge that does not depend on the tint alone. */
+.status-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 24px;
+  margin-bottom: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-left-width: 6px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.status-good {
+  border-left-color: var(--good);
+}
+
+.status-warn {
+  border-left-color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.status-bad,
+.status-critical {
+  border-left-color: var(--bad);
+  background: var(--bad-bg);
+}
+
+.status-critical {
+  border-color: var(--bad);
+}
+
+.status-level {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.status-level strong {
+  font-size: 20px;
+}
+
+.status-good .status-level strong {
+  color: var(--good);
+}
+
+.status-warn .status-level strong {
+  color: var(--warn);
+}
+
+.status-bad .status-level strong,
+.status-critical .status-level strong {
+  color: var(--bad);
+}
+
+.status-level span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.indicators {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* The last known report while the API is unreachable. */
