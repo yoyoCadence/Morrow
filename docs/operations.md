@@ -104,6 +104,17 @@ OKX 可能用 HTTP 200 回傳錯誤，錯誤放在回應的 `code` 欄位。只�
 
 API 與 worker 把 JSON 日誌寫到 stdout，一行一筆。Redaction 作用在最後輸出的整行文字上：所有已知的 secret 值（包含資料庫密碼）以及看起來像憑證的片段（URL 內的 `user:password@`、`?api-key=...`）都會被換成 `[REDACTED]`。
 
+API 每個請求在完成時寫一行（method、url、host、狀態碼、回應時間），層級依結果而定：
+
+| 結果 | 層級 |
+|---|---|
+| 成功的 GET／HEAD（包含儀表板的健康輪詢） | `debug` |
+| 其他 4xx（404、405 等）與所有非讀取請求 | `info` |
+| 403：Host 或 Origin 被拒，代表有儀表板以外的東西試著連 API（DNS rebinding 或瀏覽器中的其他網站） | `warn` |
+| 5xx，或回應本身失敗 | `error` |
+
+預設層級 `info` 下看不到成功的讀取；排查時以 `MORROW_LOG_LEVEL=debug` 啟動 API 即可看到每一個請求。
+
 ## 網路
 
 Worker 需要能直接連到：

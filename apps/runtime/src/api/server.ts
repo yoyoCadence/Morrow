@@ -7,6 +7,7 @@ import Fastify from 'fastify';
 import type pg from 'pg';
 import type { Logger } from '../logging/logger.js';
 import { buildHealthReport } from './health.js';
+import { ApiLogController } from './request-log.js';
 
 /** The API listens here and nowhere else. It is not configurable. */
 export const API_HOST = '127.0.0.1';
@@ -38,7 +39,7 @@ export interface ApiServerOptions {
  * protection, not before.
  */
 export async function buildApiServer(options: ApiServerOptions) {
-  const app = Fastify({ loggerInstance: options.logger });
+  const app = Fastify({ loggerInstance: options.logger, logController: new ApiLogController() });
 
   const allowedHosts = new Set([`${API_HOST}:${options.port}`, `localhost:${options.port}`]);
   const allowedOrigins = new Set([`http://${API_HOST}:${options.port}`, `http://localhost:${options.port}`]);
