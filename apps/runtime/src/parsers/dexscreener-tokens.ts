@@ -1,4 +1,5 @@
 import {
+  DecimalString,
   isSolanaAddress,
   knownValue,
   MARKET_WINDOWS,
@@ -11,6 +12,7 @@ import {
   type MarketWindow,
   type NewEvent,
   type Observed,
+  UIntString,
 } from '@morrow/core';
 import type { z } from 'zod';
 import { isJsonObject, member, parseJsonExact, scalarOf } from './json-exact.js';
@@ -34,8 +36,18 @@ import type { ParseResult, QuarantinedField, RawParser, StoredObservation } from
  *
  * The response has no time of its own, so `event_time` is null; when we
  * received it is `observed_at`.
+ *
+ * One pair never costs the others: a number the contract cannot carry (for
+ * example `1e-120`, which expands past the 96 characters of a DecimalString)
+ * is UNKNOWN (NOT_REPRESENTABLE) and quarantined, and a pair that still fails
+ * the PairSnapshot contract is quarantined whole (SCHEMA_REJECTED) while the
+ * rest of the response becomes events.
+ *
+ * Versions: @1 threw on such values and lost the whole response. @2 produces
+ * events for those inputs and is otherwise identical, so its output differs
+ * only where @1 produced nothing.
  */
-export const DEXSCREENER_TOKENS_PARSER_VERSION = 'dexscreener-tokens@1';
+export const DEXSCREENER_TOKENS_PARSER_VERSION = 'dexscreener-tokens@2';
 
 /** Solana mainnet-beta launched in March 2020. An earlier pool creation time is not credible. */
 const EARLIEST_CREDIBLE_MS = Date.UTC(2020, 0, 1);
@@ -57,7 +69,7 @@ class PairReader {
   amount(path: string, raw: unknown): Observed<string> {
     const parsed = parseDecimal(scalarOf(raw));
     if (parsed.state === 'KNOWN' && parsed.value.startsWith('-')) return this.#track(path, raw, unknownValue('NEGATIVE'));
-    return this.#track(path, raw, parsed);
+    return this.#track(path, raw, representable(parsed, DecimalString));
   }
 
   /** A number whose unit the provider does not document. */
@@ -69,7 +81,7 @@ class PairReader {
   count(path: string, raw: unknown): Observed<string> {
     const parsed = parseDecimal(scalarOf(raw));
     if (parsed.state === 'KNOWN' && !/^(0|[1-9]\d*)$/.test(parsed.value)) return this.#track(path, raw, unknownValue('NOT_A_COUNT'));
-    return this.#track(path, raw, parsed);
+    return this.#track(path, raw, representable(parsed, UIntString));
   }
 
   text(path: string, raw: unknown, maxLength: number): Observed<string> {
@@ -122,6 +134,33 @@ class PairReader {
   }
 }
 
+/**
+ * A KNOWN value the contract cannot carry is UNKNOWN instead. The number is
+ * real; it is the representation that runs out, so it is quarantined with
+ * its source text rather than truncated or rounded.
+ */
+function representable(parsed: Observed<string>, schema: typeof DecimalString | typeof UIntString): Observed<string> {
+  return parsed.state === 'KNOWN' && !schema.safeParse(parsed.value).success ? unknownValue('NOT_REPRESENTABLE') : parsed;
+}
+
+/**
+ * The last line of defence for one pair: a candidate that fails the contract
+ * is quarantined whole and the other pairs in the response are unaffected.
+ * Which contract rule failed is not stored; parsing the stored body again
+ * with this version reproduces it exactly.
+ */
+export function acceptSnapshot(
+  candidate: unknown,
+  at: string,
+  recordRef: string,
+  quarantined: QuarantinedField[],
+): PairSnapshot | null {
+  const result = PairSnapshot.safeParse(candidate);
+  if (result.success) return result.data;
+  quarantined.push({ recordRef, fieldPath: at, rawValue: null, reason: 'SCHEMA_REJECTED' });
+  return null;
+}
+
 function rawText(raw: unknown): string | null {
   const scalar = scalarOf(raw);
   if (typeof scalar === 'string') return scalar.slice(0, MAX_RAW_TEXT);
@@ -170,7 +209,7 @@ function parseTokensResponse(observation: StoredObservation): ParseResult {
     seenPools.add(pool);
 
     const read = new PairReader(pool, quarantined);
-    const payload = PairSnapshot.parse({
+    const payload = acceptSnapshot({
       pool_address: pool,
       venue: read.text(`${at}.dexId`, item['dexId'], 64),
       venue_labels: read.labels(`${at}.labels`, item['labels']),
@@ -188,7 +227,8 @@ function parseTokensResponse(observation: StoredObservation): ParseResult {
       fdv_usd: read.unitUnverified(`${at}.fdv`, item['fdv']),
       market_cap_usd: read.unitUnverified(`${at}.marketCap`, item['marketCap']),
       pool_created_at: read.timestampMs(`${at}.pairCreatedAt`, item['pairCreatedAt'], observation.observedAt),
-    });
+    }, at, pool, quarantined);
+    if (payload === null) return;
 
     events.push({
       schema_version: SCHEMA_VERSION,
