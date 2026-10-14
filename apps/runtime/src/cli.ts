@@ -1,6 +1,7 @@
 import { ModeNotEnabledError } from '@morrow/core';
 import type pg from 'pg';
 import { buildHealthReport } from './api/health.js';
+import { formatDoctor, runDoctor } from './app/doctor.js';
 import { SchemaNotCurrentError, startApiProcess, startWorkerProcess, type RunningProcess } from './app/processes.js';
 import { ConfigError, loadConfig, type AppConfig } from './config/config.js';
 import { migrate, MigrationError } from './db/migrate.js';
@@ -31,6 +32,9 @@ Usage: morrow <command>
   reparse [--dry-run]
                      Parse stored responses with the current parser versions where
                      that has not happened yet. Earlier versions' events are kept.
+  doctor [--network] Check the toolchain, database, migrations, backups, which
+                     credentials are set and the clock. --network also opens a TLS
+                     connection to each provider host, without sending a request.
 `;
 
 function print(text: string): void {
@@ -247,6 +251,25 @@ async function commandReparse(config: AppConfig, argument: string | undefined): 
   );
 }
 
+async function commandDoctor(config: AppConfig, argument: string | undefined): Promise<number> {
+  if (argument !== undefined && argument !== '--network') {
+    print(`Unknown option "${argument}". Usage: morrow doctor [--network]`);
+    return 2;
+  }
+  const network = argument === '--network';
+  if (network && config.mode === 'OFF') {
+    print('MORROW_MODE is OFF, which does not contact providers. Set RESEARCH or PAPER to check the provider hosts.');
+    return 2;
+  }
+  const redact = createRedactor(config.secretValues);
+  return withPool(config, 'doctor', async (pool) => {
+    const checks = await runDoctor({ config, pool, redact, network });
+    print(`Morrow ${APP_VERSION} doctor\n`);
+    print(formatDoctor(checks));
+    return checks.some((check) => check.status === 'fail') ? 1 : 0;
+  });
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, argument] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
@@ -263,6 +286,7 @@ async function main(argv: readonly string[]): Promise<number> {
     storage: commandStorage,
     backup: commandBackup,
     reparse: (config) => commandReparse(config, argument),
+    doctor: (config) => commandDoctor(config, argument),
   };
   const run = commands[command];
   if (!run) {

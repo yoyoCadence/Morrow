@@ -48,7 +48,7 @@ test('starting the API or worker in a live mode is refused before anything else 
 });
 
 test('other commands refuse a live mode as well', async () => {
-  const commands = ['migrate', 'probe', 'status', 'stop', 'storage', 'backup', 'reparse'];
+  const commands = ['migrate', 'probe', 'status', 'stop', 'storage', 'backup', 'reparse', 'doctor'];
   const results = await Promise.all(
     commands.map((command) => runCli([command], { MORROW_MODE: 'LIVE_CANARY', MORROW_DATABASE_URL: UNREACHABLE_DB })),
   );
@@ -135,4 +135,14 @@ test('reparse rejects an option it does not know before touching the database', 
   const result = await runCli(['reparse', '--force'], { MORROW_MODE: 'OFF', MORROW_DATABASE_URL: UNREACHABLE_DB });
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stdout, /Unknown option "--force"\. Usage: morrow reparse \[--dry-run\]/);
+});
+
+test('doctor rejects an unknown option, and --network in OFF mode, before touching the database', async () => {
+  const unknown = await runCli(['doctor', '--fix'], { MORROW_MODE: 'RESEARCH', MORROW_DATABASE_URL: UNREACHABLE_DB });
+  assert.equal(unknown.status, 2, unknown.stderr);
+  assert.match(unknown.stdout, /Unknown option "--fix"\. Usage: morrow doctor \[--network\]/);
+
+  const off = await runCli(['doctor', '--network'], { MORROW_MODE: 'OFF', MORROW_DATABASE_URL: UNREACHABLE_DB });
+  assert.equal(off.status, 2, off.stderr);
+  assert.match(off.stdout, /MORROW_MODE is OFF, which does not contact providers/);
 });

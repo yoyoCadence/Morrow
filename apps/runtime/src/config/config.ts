@@ -32,6 +32,13 @@ const EnvSchema = z.strictObject({
   MORROW_OKX_PASSPHRASE: Secret.optional(),
 });
 
+/** The settings that hold each provider's credentials. A provider not listed here needs none. */
+export const CREDENTIAL_VARIABLES = {
+  jupiter: ['MORROW_JUPITER_API_KEY'],
+  helius: ['MORROW_HELIUS_API_KEY'],
+  okx: ['MORROW_OKX_API_KEY', 'MORROW_OKX_SECRET_KEY', 'MORROW_OKX_PASSPHRASE'],
+} as const satisfies Record<keyof ProviderCredentials, readonly (keyof z.infer<typeof EnvSchema>)[]>;
+
 export interface ProviderCredentials {
   readonly jupiter?: { readonly apiKey: string };
   readonly helius?: { readonly apiKey: string };

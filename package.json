@@ -29,6 +29,7 @@
     "storage": "node --env-file-if-exists=.env apps/runtime/dist/cli.js storage",
     "backup": "node --env-file-if-exists=.env apps/runtime/dist/cli.js backup",
     "reparse": "node --env-file-if-exists=.env apps/runtime/dist/cli.js reparse",
+    "doctor": "node --env-file-if-exists=.env apps/runtime/dist/cli.js doctor",
     "dev:web": "npm run dev -w @morrow/web"
   },
   "devDependencies": {

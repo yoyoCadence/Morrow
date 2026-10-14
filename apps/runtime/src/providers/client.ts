@@ -62,7 +62,7 @@ export interface ProviderResult {
 
 // Certificate verification failures. The usual cause on a managed network is
 // TLS interception; the data on such a connection is not trusted.
-const TLS_ERROR_CODES = new Set([
+export const TLS_ERROR_CODES: ReadonlySet<string> = new Set([
   'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
   'UNABLE_TO_GET_ISSUER_CERT',
   'UNABLE_TO_GET_ISSUER_CERT_LOCALLY',

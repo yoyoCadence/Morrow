@@ -81,7 +81,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 都在 M0–M4 授權範圍內，不新增費用。
 
-- [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
 - [ ] **FT-08 決策日誌**（E3.1 的設計要求）— 每份 thesis 必須有機率、到期日、「什麼會證明我錯了」；到期自動產生 label，累積 Brier score。
 
 ### Not authorized
@@ -130,3 +129,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **UI-10 導覽骨架**（P2，需 FT-01 或 FT-02）— 第一個真正的頁面出現時再加分頁（系統／市場快照／證據／Paper／研究），不先做空分頁。 實作：隨 FT-01 的頁面加入「系統／證據」兩個分頁（`apps/web/src/route.ts`）。用路徑而不是 hash，API 對 `/api/` 以外的路徑都回 index.html，所以每一頁都能加書籤、重新整理，瀏覽器的上一頁也有效；頁內連結在新分頁開啟時是真的網址。健康輪詢在所有頁面持續，分頁標題與 favicon 照常反映狀態。市場快照、Paper、研究等分頁在各自的頁面出現時才加。（2026-10-14）
 - [x] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。 實作：`GET /api/market/pairs`（`apps/runtime/src/api/market.ts`，契約 `MarketPairsPage` 在 `packages/core/src/contracts/market.ts`）回傳每個池子最新的 `pair.snapshot`：最新是最晚收到的，同時收到的（同一份回應重新解析）取最後寫入的；回補的舊觀測不會蓋過較新的。查詢是 loose index scan，走 migration `0008` 的部分索引，成本隨池子數而不是歷史長度增加；測試以 `EXPLAIN` 確認三處讀取都用這個索引。最新一筆讀不了（payload 版本較新，或不符合契約）的池子列在 `rejected`，不會靜默消失，也不會改用更舊的一筆代替。儀表板加入「市場」分頁（`apps/web/src/Market.tsx`）：依代幣分組、流動性高的在前（以 numeric 排序，不是字串）；每個 `Observed` 值只有 KNOWN 顯示數值，其餘寫出狀態與原因（「未知：單位未確認」「未知：來源未提供」），代碼在提示文字中；數值只重排千分位，不經過 JavaScript 浮點數；超過 5 分鐘的 snapshot 標示「過時」；展開可看各區間的筆數、成交量、漲跌，以及報價資產、FDV、市值、池子建立時間、來源與證據連結。頁面標示這是聚合器的狀態，不是可成交報價。代幣以 mint 識別，不顯示代號。（2026-10-14）
 - [x] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。 實作：`npm run reparse [-- --dry-run]`（`apps/runtime/src/parsers/reparse.ts`）。以目前登記的 parser 版本，解析還沒被這個版本處理過的成功回應：由舊到新、每一筆一個 transaction，以 keyset 分批讀取，所以中斷後再跑一次會從停下的地方繼續；與 worker 或另一個 reparse 同時執行時，同一筆只會被解析一次（`consumer_inbox` 的標記與事件在同一個 transaction）。舊版本的事件與 quarantine 以版本作為 key 的一部分，原樣保留。`--dry-run` 只列出各 parser 的成功回應數、已解析數與待解析數。每次執行（包括沒有東西要解析的）記入 `audit_log`：開始前寫 `parser.reparse.started`，完成或出錯時寫 `completed`／`failed` 與出錯前完成的筆數，所以被中斷的執行也有紀錄。reparse 不會再解析這個版本處理過的回應，所以不檢查 parser 是否決定性，這由 parser 的測試保證。不需要 schema 變更。（2026-10-14）
+- [x] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。 實作：`npm run doctor [-- --network]`（`apps/runtime/src/app/doctor.ts`）。檢查 Node 版本（與 `engines` 同一範圍，有測試確保兩者一致）、儀表板建置、模式、資料庫連線與伺服器版本、migration、時鐘偏移（與健康報告同一個估計）、還原檢查用資料庫、`pg_dump`／`pg_restore` 的版本、`MORROW_BACKUP_DIR`、每個供應商的憑證（只列設定名稱，哪些供應商需要憑證由 registry 決定，有測試確保一致）。`--network` 對每個供應商主機做 DNS 與 TLS handshake（`providers/reachability.ts`），憑證以和 worker 相同的錯誤碼分類為 `TLS_UNTRUSTED`；不送出 HTTP 請求，`OFF` 模式拒絕。有 `FAIL` 時結束代碼為 1。資料庫連不上時，其餘不需要資料庫的檢查照常執行，錯誤訊息經過 redactor。（2026-10-14）

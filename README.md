@@ -74,6 +74,7 @@ npm run stop       # 請兩個程序乾淨停止（也可以指定 api 或 worke
 | `npm run backup` | 把資料庫備份到 `MORROW_BACKUP_DIR`，並還原到 `morrow_restore_check` 逐表核對；核對通過才算備份成功（見 [docs/operations.md](docs/operations.md)） |
 | `npm run storage` | 各資料表的大小與近 24 小時的成長（會掃描每張表，資料多時要等一下） |
 | `npm run probe` | 量測目前金鑰實際可用的供應商功能 |
+| `npm run doctor [-- --network]` | 檢查工具鏈、資料庫、migration、備份、哪些憑證已設定（不顯示值）與時鐘；`--network` 再檢查供應商主機的 TLS 連線（見 [docs/operations.md](docs/operations.md)） |
 | `npm run reparse [-- --dry-run]` | Parser 升版後，以目前的版本解析還沒解析過的已存回應；舊版本的事件不改動（見 [docs/operations.md](docs/operations.md)） |
 | `npm run dev:web` | dashboard 開發伺服器（需要 API 同時執行） |
 

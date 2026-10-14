@@ -27,6 +27,14 @@ export class BackupError extends Error {
   }
 }
 
+/** A PostgreSQL client tool is not on PATH. */
+export class ToolNotFoundError extends BackupError {
+  constructor(readonly tool: string) {
+    super(`${tool} was not found. Put the PostgreSQL client tools on PATH (scripts\\dev-env.ps1 does).`);
+    this.name = 'ToolNotFoundError';
+  }
+}
+
 /** The repository root, from the compiled location of this file (apps/runtime/dist/db). */
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
@@ -146,17 +154,23 @@ function runTool(command: string, args: readonly string[], env: NodeJS.ProcessEn
       stderr += chunk.toString();
     });
     child.on('error', (error: NodeJS.ErrnoException) => {
-      reject(
-        error.code === 'ENOENT'
-          ? new BackupError(`${command} was not found. Put the PostgreSQL client tools on PATH (scripts\\dev-env.ps1 does).`)
-          : error,
-      );
+      reject(error.code === 'ENOENT' ? new ToolNotFoundError(command) : error);
     });
     child.on('close', (code) => {
       if (code === 0) resolve(stdout);
       else reject(new BackupError(`${command} failed (exit ${code}): ${redact(stderr.trim())}`));
     });
   });
+}
+
+/** What `tool --version` prints, for example "pg_dump (PostgreSQL) 17.6"; null when the tool is not on PATH. */
+export async function toolVersion(tool: string): Promise<string | null> {
+  try {
+    return (await runTool(tool, ['--version'], process.env, (text) => text)).trim();
+  } catch (error) {
+    if (error instanceof ToolNotFoundError) return null;
+    throw error;
+  }
 }
 
 /** Fails unless `tool` is at least as new as the server: an older pg_dump refuses a newer server, or misses what it added. */
