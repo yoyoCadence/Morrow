@@ -11,6 +11,7 @@ import { enqueueJob, getJobState } from './jobs/job-queue.js';
 import { sleep } from './jobs/worker.js';
 import { createLogger } from './logging/logger.js';
 import { createRedactor } from './logging/redact.js';
+import { planReparse, reparse } from './parsers/reparse.js';
 import { PROBE_JOB_KIND, readProbeRecords } from './providers/probes.js';
 import { requestStop, SessionConflictError, waitForStop, type Component } from './session/run-session.js';
 import { APP_VERSION } from './version.js';
@@ -27,6 +28,9 @@ Usage: morrow <command>
   status             Print the health report as JSON.
   storage            Print the size and daily growth of each table.
   backup             Dump the database to MORROW_BACKUP_DIR and check that it restores.
+  reparse [--dry-run]
+                     Parse stored responses with the current parser versions where
+                     that has not happened yet. Earlier versions' events are kept.
 `;
 
 function print(text: string): void {
@@ -202,6 +206,47 @@ async function commandBackup(config: AppConfig): Promise<number> {
   );
 }
 
+async function commandReparse(config: AppConfig, argument: string | undefined): Promise<number> {
+  if (argument !== undefined && argument !== '--dry-run') {
+    print(`Unknown option "${argument}". Usage: morrow reparse [--dry-run]`);
+    return 2;
+  }
+  // Counting what is pending reads every stored response, like `storage`.
+  return withPool(
+    config,
+    'reparse',
+    async (pool) => {
+      const plan = await planReparse(pool);
+      for (const entry of plan) {
+        print(
+          `${entry.provider}/${entry.capability} with ${entry.parserVersion}: ${entry.responses} successful responses, ` +
+            `${entry.parsed} already parsed by this version, ${entry.pending} to parse.`,
+        );
+      }
+      if (argument === '--dry-run') {
+        print('Dry run: nothing was written.');
+        return 0;
+      }
+      // Run even when nothing is pending, so that every run is in the audit log.
+      const results = await reparse(pool, {
+        onProgress: (totals) => {
+          if (totals.parsed > 0 && totals.parsed % 100 === 0) print(`  ${totals.parserVersion}: ${totals.parsed} parsed`);
+        },
+      });
+      for (const result of results) {
+        print(
+          `Parsed ${result.parsed} responses with ${result.parserVersion}: ${result.eventsInserted} events added, ` +
+            `${result.quarantined} fields quarantined.`,
+        );
+        if (result.alreadyParsed > 0) print(`  ${result.alreadyParsed} were parsed meanwhile by another process.`);
+      }
+      print('Events from earlier parser versions are unchanged. The run is recorded in audit_log.');
+      return 0;
+    },
+    { statementTimeoutMs: 300_000 },
+  );
+}
+
 async function main(argv: readonly string[]): Promise<number> {
   const [command, argument] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
@@ -217,6 +262,7 @@ async function main(argv: readonly string[]): Promise<number> {
     status: commandStatus,
     storage: commandStorage,
     backup: commandBackup,
+    reparse: (config) => commandReparse(config, argument),
   };
   const run = commands[command];
   if (!run) {
