@@ -843,3 +843,64 @@ table tbody tr.detail-row td {
     margin-bottom: 8px;
   }
 }
+
+/* Market snapshot page (FT-02). */
+.market-summary {
+  margin: 0 0 8px;
+}
+
+/* A second, quieter line in a cell: the network under a mint, the address under a pool. */
+.sub {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Amounts line up on the right, where their digits can be compared. */
+.market-pairs .num {
+  text-align: right;
+}
+
+/*
+ * A value that is not KNOWN. It reads as a statement, not a number: muted,
+ * with a dashed underline that says there is more in the tooltip (the state
+ * and reason codes). Never a zero, never blank.
+ */
+.observed {
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+.observed-stale {
+  color: var(--warn);
+}
+
+.observed-conflicting {
+  color: var(--bad);
+}
+
+/* One window's value; a line breaks between windows, never inside one. */
+.window {
+  display: inline-block;
+  margin-right: 14px;
+  white-space: nowrap;
+}
+
+.window-label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.pair-detail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  /* Each list keeps its own height; stretched to its neighbour's, its rows would spread apart. */
+  align-items: start;
+  gap: 12px 24px;
+  padding: 4px 0 8px;
+  text-align: left;
+  white-space: normal;
+}

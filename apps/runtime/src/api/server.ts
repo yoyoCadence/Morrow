@@ -21,6 +21,7 @@ import {
   parseSubject,
 } from './evidence.js';
 import { buildHealthReport } from './health.js';
+import { listLatestPairs } from './market.js';
 import { ApiLogController } from './request-log.js';
 
 /** The API listens here and nowhere else. It is not configurable. */
@@ -109,6 +110,17 @@ export async function buildApiServer(options: ApiServerOptions) {
       // The cause stays in the log; the page only needs to know there is no answer.
       options.logger.error({ err: error }, 'coverage query failed');
       return reply.code(503).send({ error: 'COVERAGE_UNAVAILABLE' });
+    }
+  });
+
+  // Market snapshot page (FT-02): the latest snapshot of every pool.
+  app.get('/api/market/pairs', async (_request, reply) => {
+    reply.header('cache-control', 'no-store');
+    try {
+      return await listLatestPairs(options.pool);
+    } catch (error) {
+      options.logger.error({ err: error }, 'market query failed');
+      return reply.code(503).send({ error: 'MARKET_UNAVAILABLE' });
     }
   });
 

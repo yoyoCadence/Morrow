@@ -175,6 +175,9 @@ Worker 需要能直接連到：
 | `The database has N pending migration(s)` | 執行 `npm run migrate` |
 | `A worker session is already running` | 已經有一份在執行；用 `npm run stop -- worker` 停止 |
 | `npm run stop` 回報 `worker: not running. No heartbeat for ...` | 該程序已經當掉或被強制結束，沒有程序可以停止。下次啟動時會記錄一筆 `UNCLEAN_SHUTDOWN` 缺口 |
+| 「市場」頁是空的 | 同上：snapshot 是 DEX Screener `market.tokens` 的回應經過 parser 之後產生的事件。目前沒有固定排程，只有送出請求（例如 `npm run probe`）時才會有新的 |
+| 「市場」頁的池子都標示「過時」 | snapshot 超過 5 分鐘就這樣標示（只是顯示規則，資料不變）。目前沒有排程，所以除了剛 probe 過，一定會過時。不要把過時的價格當成目前的價格 |
+| 「市場」頁的成交量、漲跌、FDV、市值都是「未知」 | 刻意如此：DEX Screener 的文件沒有說明這些欄位的單位，parser 不以數字大小猜測單位，記成 `UNKNOWN (UNIT_UNVERIFIED)` 並 quarantine 原文。沒有送的欄位是 `UNKNOWN (MISSING)`。確認單位後要升 parser 版本，見 FT-04 |
 | 「證據」頁的事件是空的 | 還沒有 parser 處理過任何回應：目前只有 DEX Screener `market.tokens` 有 parser，而 worker 要在 `RESEARCH`／`PAPER` 模式、且有東西送出請求（例如 `npm run probe`）時才會產生原始觀測 |
 | 頁首提示「儀表板與 API 不是同一個版本」 | API 的回應不符合這個儀表板的契約，訊息會指出第一個不符的欄位。通常是更新程式碼後只重建了其中一邊，或 API 沒有重新啟動。執行 `npm run build`，重新啟動 API，再重新整理頁面 |
 | 頁首顯示「無法更新 · 上次成功 …」，畫面變灰 | 儀表板連不到本機 API：API 程序停止、當掉，或機器剛從休眠恢復。畫面是最後一次取得的狀態，不是現在的狀態。啟動 API：`npm run api`。頁首圓點：綠色表示最近有更新，黃色表示晚了一兩次，紅色表示已過期或連不上 |

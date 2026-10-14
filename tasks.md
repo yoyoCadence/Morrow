@@ -63,6 +63,8 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 - [ ] 自動定期備份：`npm run backup`（FT-06）目前要手動執行。用 Windows 工作排程器，或在 worker 加一個本機排程；要決定頻率與保留幾份。
 - [ ] 從備份還原成正式資料庫的指令與演練（E4.2）。FT-06 只做「還原到檢查用資料庫並核對」，正式還原的步驟目前寫在 docs/operations.md。
 - [ ] 排程缺口的呈現：第一個真正的排程加入時，health 與觀測覆蓋要顯示 `schedule_gaps`（FT-03 目前只記錄）。
+- [ ] 市場頁的「過時」門檻目前固定 5 分鐘（`apps/web/src/market.ts` 的 `SNAPSHOT_STALE_MS`，只是顯示規則）。第一個 `market.tokens` 排程加入時，改由排程間隔推導，並讓 API 回報所依據的間隔。
+- [ ] 市場頁列出所有曾有 snapshot 的池子，包括已經不在追蹤清單、很久沒更新的池子。有排程之後加「只看最近 N 小時」的篩選，或把過時的池子收合在最後。
 - [ ] 儀表板的 bundle 帶進了 core 的 `node:crypto`（`contracts/event.js` 的 fact hash；Vite 建置時警告 externalized）。目前瀏覽器不會呼叫到，但哪天呼叫就會在執行期失敗。把需要 Node 的部分移出儀表板會 import 的入口，或讓 web 只 import 它用到的契約。
 
 ### 審查發現 — M2 之前完成
@@ -79,7 +81,6 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 都在 M0–M4 授權範圍內，不新增費用。
 
-- [ ] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。
 - [ ] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。
 - [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
 - [ ] **FT-08 決策日誌**（E3.1 的設計要求）— 每份 thesis 必須有機率、到期日、「什麼會證明我錯了」；到期自動產生 label，累積 Brier score。
@@ -128,3 +129,4 @@ M5–M8（production readiness、live canary、guarded autonomy、learning）只
 - [x] **FT-06 備份與還原提前**（P1）— `pg_dump` 到資料目錄之外，並還原到獨立的測試資料庫驗證；不得覆蓋使用中的資料庫。實作：`npm run backup`（`apps/runtime/src/db/backup.ts`）。傾印到 `MORROW_BACKUP_DIR`（必須是絕對路徑、在 repo 之外），manifest 記錄每張表的列數、trigger、migration、大小與 SHA-256；列數與傾印來自同一個 export 的 snapshot，執行中也一致。寫完立刻還原到 `<資料庫>_restore_check` 逐項核對，通過才在 manifest 記下 `restore_check`；目標名稱由程式推導且連線後再確認，不會碰使用中的資料庫。密碼以 `PGPASSWORD` 傳給工具，不在命令列；工具版本必須不舊於伺服器；檢查用資料庫不存在時在傾印之前就停止。`pg-local.ps1 init` 會建立 `morrow_restore_check` 與 `morrow_test_restore_check`（重跑 init 即可補上）；CI 從 PostgreSQL 官方 apt 套件庫安裝 17 版 client。原本 Backlog 的「本機資料庫的備份與還原」改為兩個後續項目：自動定期備份、正式還原的指令與演練。（2026-10-14）
 - [x] **FT-01 證據瀏覽器**（P1，E4.1 的前置）— 依 subject 查事件、raw observation 的中繼資料與本文、quarantine 清單。唯讀 API，維持 GET only。 實作：唯讀 API（#34）：`GET /api/events`、`/api/raw-observations`、`/api/raw-observations/:id`、`/api/quarantine`，契約在 `packages/core/src/contracts/evidence.ts`，以單調 id 分頁、外部文字在送出前遮蔽憑證、本文最多 256 KiB；migration `0007` 為 subject 分頁與「引用某筆觀測的事件」加上索引。儀表板的「證據」頁（`apps/web/src/Evidence.tsx`）：事件依 subject 查詢（先以共用契約驗證，不接受代號）並分頁，每筆可展開 payload 與 provenance、點證據走到原始觀測；原始觀測清單；quarantine 清單。單筆觀測頁列出請求的每一項事實、原始回應、產生的事件與 quarantine 的欄位。JSON 本文以不解析數值的方式縮排（`indentJson`）：重新序列化會把 0.00000001234 寫成 1.234e-8、讓超過 2^53 的整數失去位數，那就改寫了證據。來自供應商的文字一律以文字呈現、已在 API 遮蔽。冒煙測試在 4 種畫面下走過證據頁、展開 payload、進入單筆觀測、按上一頁返回。（2026-10-14）
 - [x] **UI-10 導覽骨架**（P2，需 FT-01 或 FT-02）— 第一個真正的頁面出現時再加分頁（系統／市場快照／證據／Paper／研究），不先做空分頁。 實作：隨 FT-01 的頁面加入「系統／證據」兩個分頁（`apps/web/src/route.ts`）。用路徑而不是 hash，API 對 `/api/` 以外的路徑都回 index.html，所以每一頁都能加書籤、重新整理，瀏覽器的上一頁也有效；頁內連結在新分頁開啟時是真的網址。健康輪詢在所有頁面持續，分頁標題與 favicon 照常反映狀態。市場快照、Paper、研究等分頁在各自的頁面出現時才加。（2026-10-14）
+- [x] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。 實作：`GET /api/market/pairs`（`apps/runtime/src/api/market.ts`，契約 `MarketPairsPage` 在 `packages/core/src/contracts/market.ts`）回傳每個池子最新的 `pair.snapshot`：最新是最晚收到的，同時收到的（同一份回應重新解析）取最後寫入的；回補的舊觀測不會蓋過較新的。查詢是 loose index scan，走 migration `0008` 的部分索引，成本隨池子數而不是歷史長度增加；測試以 `EXPLAIN` 確認三處讀取都用這個索引。最新一筆讀不了（payload 版本較新，或不符合契約）的池子列在 `rejected`，不會靜默消失，也不會改用更舊的一筆代替。儀表板加入「市場」分頁（`apps/web/src/Market.tsx`）：依代幣分組、流動性高的在前（以 numeric 排序，不是字串）；每個 `Observed` 值只有 KNOWN 顯示數值，其餘寫出狀態與原因（「未知：單位未確認」「未知：來源未提供」），代碼在提示文字中；數值只重排千分位，不經過 JavaScript 浮點數；超過 5 分鐘的 snapshot 標示「過時」；展開可看各區間的筆數、成交量、漲跌，以及報價資產、FDV、市值、池子建立時間、來源與證據連結。頁面標示這是聚合器的狀態，不是可成交報價。代幣以 mint 識別，不顯示代號。（2026-10-14）

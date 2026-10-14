@@ -106,6 +106,18 @@
 
 分頁以單調遞增的 id 為游標（`before` = 上一頁的 `next_before`），新資料進來時既有的頁面不會位移。id 與序號以字串傳遞：`bigint` 放不進 JavaScript 的 number。每頁預設 `EVIDENCE_PAGE_DEFAULT`（50）筆，最多 `EVIDENCE_PAGE_MAX`（200）筆。
 
+## 市場快照檢視（FT-02）
+
+`contracts/market.ts`，供 `GET /api/market/pairs` 使用。
+
+| 契約 | 內容 |
+|---|---|
+| `MarketPairsPage` | 每個池子最新的一筆 `PairSnapshotView`，依代幣分組、流動性高的在前（流動性不是 KNOWN 的排最後）；`rejected` 列出最新一筆讀不了的池子；池子超過 `MARKET_PAIRS_MAX`（500）個時 `truncated`，只列依地址排序的前 500 個 |
+| `PairSnapshotView` | `PairSnapshot` 本身（每個數值仍是 `Observed`，原樣傳遞），加上事件 id、`recorded_seq`、收到與可用的時間、來源、parser 版本與證據參照 |
+| `RejectedSnapshot` | 最新一筆的 payload 版本不是這個版本會讀的（`PAYLOAD_VERSION`），或不符合 `PairSnapshot`（`PAYLOAD_REJECTED`）。這種池子不會改用更舊的一筆代替：把舊狀態當成目前狀態是錯的 |
+
+「最新」是最晚收到的（`observed_at`）；同時收到的幾筆（同一份回應重新解析）取最後寫入的（`recorded_seq`）。回補進來的舊觀測不會蓋過較新的。來源沒有提供自己的時間，所以沒有 `event_time` 可以排序。
+
 ## 運作模式
 
 `OperatingMode` 列出藍圖定義的全部 8 種模式，但只有 `OFF`、`RESEARCH`、`PAPER` 可以啟動。`requireEnabledMode()` 對其他值（包含 `SHADOW`、`LIVE_CANARY`、`EXIT_ONLY`、`GUARDED_AUTO`、`FULL_AUTO`）丟出 `ModeNotEnabledError`。放寬這份清單是後續里程碑中由人做的決定，系統內沒有任何路徑可以自行變更。

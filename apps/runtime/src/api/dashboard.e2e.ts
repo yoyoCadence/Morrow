@@ -93,7 +93,8 @@ async function seedEvidence(pool: pg.Pool): Promise<string> {
     errorClass: null,
     errorDetail: null,
     durationMs: 113,
-    observedAt: new Date(),
+    // Ten minutes old: past the five minutes after which the market page marks a snapshot out of date.
+    observedAt: new Date(Date.now() - 10 * 60_000),
     runSessionId: null,
   });
   await ingestRawObservation(pool, stored.id);
@@ -181,6 +182,24 @@ test('the dashboard renders from the real API, light and dark, wide and narrow',
         const background = luminance(await page.evaluate<string>('getComputedStyle(document.documentElement).backgroundColor'));
         if (view.colorScheme === 'dark') assert.ok(background < 0.1, `dark background, luminance ${background}`);
         else assert.ok(background > 0.8, `light background, luminance ${background}`);
+
+        // The market page: the seeded snapshot, its values exactly as observed, and the ones that are not known, with why.
+        await page.getByRole('link', { name: '市場', exact: true }).click();
+        await page.locator('.market-pairs tbody tr').first().waitFor();
+        assert.equal(new URL(page.url()).pathname, '/market');
+        const pair = await page.locator('.market-pairs tbody tr').first().innerText();
+        assert.match(pair, /120\.78/);
+        assert.match(pair, /30,663,136\.63/, 'liquidity, every digit');
+        assert.match(pair, /39,938/);
+        assert.match(pair, /未知：單位未確認/, '24h volume: sent, in a unit nobody has confirmed');
+        assert.match(pair, /10 分鐘前/);
+        assert.match(pair, /過時/, 'older than five minutes');
+        assert.equal(await page.locator('.market-pairs .observed').first().getAttribute('title'), 'UNKNOWN · UNIT_UNVERIFIED');
+        await page.locator('.market-pairs').getByRole('button', { name: '展開' }).click();
+        const detail = await page.locator('.market-pairs .detail-row').innerText();
+        assert.match(detail, /120\.7831/, 'the price in the quote asset');
+        assert.match(detail, /未知：來源未提供/, 'FDV and market cap were not sent');
+        await assertNoSidewaysScroll(page, 'market');
 
         // The evidence page, through the page links, then one observation and back.
         await page.getByRole('link', { name: '證據', exact: true }).click();

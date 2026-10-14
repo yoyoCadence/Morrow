@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FetchError, type FetchProblem, fetchChecked, type Schema } from './poll.js';
+import { FetchError, type FetchProblem, fetchChecked, type PollingOptions, type Schema, startPolling } from './poll.js';
 
 /** Longer than a healthy answer takes, shorter than the database's own statement timeout. */
 const TIMEOUT_MS = 15_000;
@@ -102,4 +102,41 @@ export function usePagedList<Page, T>(
   }, [load]);
 
   return { items, state, error, hasMore: next !== null, loadMore: () => load(next) };
+}
+
+export interface Polled<T> {
+  /** The last answer received; kept through a refresh that fails. Null until the first one arrives. */
+  readonly data: T | null;
+  /** Why the latest request failed; null once one succeeds. */
+  readonly error: string | null;
+}
+
+/**
+ * Fetches `url` now and again on the polling schedule, for data that keeps
+ * arriving. A failed refresh keeps the last answer and reports the failure
+ * next to it, so the page shows how old its data is instead of going blank.
+ */
+export function usePolled<T>(url: string, schema: Schema<T>, options: PollingOptions): Polled<T> {
+  const [state, setState] = useState<Polled<T>>({ data: null, error: null });
+  const { visibleMs, hiddenMs } = options;
+  useEffect(() => {
+    const controller = new AbortController();
+    setState({ data: null, error: null });
+    const stop = startPolling(
+      async () => {
+        try {
+          const data = await fetchChecked(url, schema, TIMEOUT_MS, controller.signal);
+          setState({ data, error: null });
+        } catch (error) {
+          if (!controller.signal.aborted) setState((previous) => ({ data: previous.data, error: failure(error).message }));
+        }
+      },
+      { visibleMs, hiddenMs },
+    );
+    return () => {
+      controller.abort();
+      stop();
+    };
+  }, [url, schema, visibleMs, hiddenMs]);
+  return state;
 }
