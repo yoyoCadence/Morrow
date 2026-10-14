@@ -3,10 +3,23 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import { COVERAGE_WINDOWS_HOURS, type EnabledMode } from '@morrow/core';
-import Fastify from 'fastify';
+import Fastify, { type FastifyReply } from 'fastify';
 import type pg from 'pg';
 import type { Logger } from '../logging/logger.js';
+import { createRedactor } from '../logging/redact.js';
 import { buildCoverage } from './coverage.js';
+import {
+  EvidenceQueryError,
+  getRawObservation,
+  listEvents,
+  listQuarantine,
+  listRawObservations,
+  parseCursor,
+  parseFilter,
+  parseId,
+  parseLimit,
+  parseSubject,
+} from './evidence.js';
 import { buildHealthReport } from './health.js';
 import { ApiLogController } from './request-log.js';
 
@@ -25,6 +38,11 @@ export interface ApiServerOptions {
   /** Folder holding the built dashboard. Skipped when it has no index.html. */
   readonly webRoot?: string;
   readonly migrationsDir?: string;
+  /**
+   * Removes known secrets from evidence text before it is served. Without
+   * it, only credential-shaped patterns are removed.
+   */
+  readonly redact?: (text: string) => string;
 }
 
 /**
@@ -93,6 +111,61 @@ export async function buildApiServer(options: ApiServerOptions) {
       return reply.code(503).send({ error: 'COVERAGE_UNAVAILABLE' });
     }
   });
+
+  // Evidence browser (FT-01): read-only views of what was observed and what was made of it.
+  const redact = options.redact ?? createRedactor([]);
+  const evidence = async (reply: FastifyReply, work: () => Promise<unknown>): Promise<unknown> => {
+    reply.header('cache-control', 'no-store');
+    try {
+      return await work();
+    } catch (error) {
+      if (error instanceof EvidenceQueryError) return reply.code(400).send({ error: error.error });
+      options.logger.error({ err: error }, 'evidence query failed');
+      return reply.code(503).send({ error: 'EVIDENCE_UNAVAILABLE' });
+    }
+  };
+  type Query = Record<string, unknown>;
+  app.get('/api/events', (request, reply) =>
+    evidence(reply, () => {
+      const query = request.query as Query;
+      return listEvents(options.pool, {
+        subject: parseSubject(query['subject']),
+        before: parseCursor(query['before']),
+        limit: parseLimit(query['limit']),
+      });
+    }),
+  );
+  app.get('/api/raw-observations', (request, reply) =>
+    evidence(reply, () => {
+      const query = request.query as Query;
+      return listRawObservations(
+        options.pool,
+        {
+          provider: parseFilter(query['provider']),
+          capability: parseFilter(query['capability']),
+          before: parseCursor(query['before']),
+          limit: parseLimit(query['limit']),
+        },
+        redact,
+      );
+    }),
+  );
+  app.get('/api/raw-observations/:id', (request, reply) =>
+    evidence(reply, async () => {
+      const detail = await getRawObservation(options.pool, parseId((request.params as Query)['id']), redact);
+      return detail ?? reply.code(404).send({ error: 'NOT_FOUND' });
+    }),
+  );
+  app.get('/api/quarantine', (request, reply) =>
+    evidence(reply, () => {
+      const query = request.query as Query;
+      return listQuarantine(
+        options.pool,
+        { reason: parseFilter(query['reason']), before: parseCursor(query['before']), limit: parseLimit(query['limit']) },
+        redact,
+      );
+    }),
+  );
 
   const webRoot = options.webRoot ?? DEFAULT_WEB_ROOT;
   const hasDashboard = existsSync(path.join(webRoot, 'index.html'));
