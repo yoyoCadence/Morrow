@@ -17,6 +17,10 @@ const JUPITER_KEY = 'jupiter-key-55aa01';
 const CREDENTIALS: ProviderCredentials = { helius: { apiKey: HELIUS_KEY }, jupiter: { apiKey: JUPITER_KEY } };
 /** OKX's way of rejecting a signature: HTTP 200 with the error in the envelope. */
 const ENVELOPE_ERROR = '{"code":"50113","msg":"Invalid Sign","data":[]}';
+/** A success for every provider: a JSON-RPC result, which Helius requires; the others do not read the body. */
+const OK_BODY = '{"jsonrpc":"2.0","id":1,"result":"ok"}';
+/** A JSON-RPC error, also with HTTP 200. The message echoes the key, as a careless server might. */
+const RPC_ERROR = `{"jsonrpc":"2.0","id":1,"error":{"code":-32005,"message":"Node is behind by 42 slots (key ${HELIUS_KEY})"}}`;
 
 interface Hit {
   readonly method: string;
@@ -44,7 +48,9 @@ before(async () => {
     request.resume();
     if (path === '/envelope-error') return send(200, ENVELOPE_ERROR);
     if (path === '/envelope-ok') return send(200, '{"code":"0","msg":"","data":[]}');
-    if (path?.startsWith('/ok')) return send(200, '{"ok":true}');
+    if (path === '/rpc-error') return send(200, RPC_ERROR);
+    if (path === '/rpc-ok') return send(200, OK_BODY);
+    if (path?.startsWith('/ok')) return send(200, OK_BODY);
     if (path === '/rate') return send(429, '{"error":"slow down"}', { 'retry-after': '120' });
     if (path === '/pay') return send(402, '{"error":"upgrade your plan"}');
     if (path === '/auth') return send(401, '{"error":"bad key"}');
@@ -159,7 +165,7 @@ test('a successful response is returned, stored as evidence, and marks the sourc
 
   assert.equal(result.outcome, 'OK');
   assert.equal(result.httpStatus, 200);
-  assert.equal(result.body?.toString(), '{"ok":true}');
+  assert.equal(result.body?.toString(), OK_BODY);
   assert.ok(result.rawObservationId);
 
   const rows = await rawRows(cap);
@@ -169,7 +175,7 @@ test('a successful response is returned, stored as evidence, and marks the sourc
     { url: `${origin}/ok`, outcome: 'OK', status: 200, reason: 'scheduled' },
   );
   assert.equal(rows[0]?.payload_sha256, result.payloadSha256);
-  assert.equal((await readRawPayload(db.pool, result.payloadSha256 ?? ''))?.toString(), '{"ok":true}');
+  assert.equal((await readRawPayload(db.pool, result.payloadSha256 ?? ''))?.toString(), OK_BODY);
   assert.deepEqual(await health(cap), { state: 'HEALTHY', last_outcome: 'OK', consecutive_failures: 0, blocked_until: null });
 });
 
@@ -289,6 +295,26 @@ test('an OKX error inside an HTTP 200 is classified by its code, not reported as
   // Providers without an envelope are judged by the HTTP status alone.
   const plain = capability('dexscreener');
   assert.equal((await client.request({ capability: plain, spec: get('/envelope-error'), reason: 'probe' })).outcome, 'OK');
+});
+
+test('a JSON-RPC error inside an HTTP 200 is not reported as OK, and its message is redacted', async () => {
+  const { client } = harness();
+  const failing = capability('helius');
+  const result = await client.request({ capability: failing, spec: get('/rpc-error'), reason: 'probe' });
+  assert.equal(result.outcome, 'SERVER_ERROR');
+  assert.equal(result.httpStatus, 200);
+  assert.equal(result.detail, 'RPC_CODE_-32005');
+  assert.equal(result.body?.toString(), RPC_ERROR, 'the response is kept as evidence, as received');
+
+  const [row] = await rawRows(failing);
+  assert.equal(row?.outcome, 'SERVER_ERROR');
+  assert.equal(row?.error_class, 'RPC_CODE_-32005');
+  assert.match(row?.error_detail ?? '', /^Node is behind by 42 slots/);
+  assert.ok(!row?.error_detail?.includes(HELIUS_KEY), 'the key in the message is not stored');
+  assert.equal((await health(failing))?.state, 'DOWN', 'backed off, like an HTTP 5xx');
+
+  const working = capability('helius');
+  assert.equal((await client.request({ capability: working, spec: get('/rpc-ok'), reason: 'probe' })).outcome, 'OK');
 });
 
 test('rejected credentials are not retried automatically', async () => {

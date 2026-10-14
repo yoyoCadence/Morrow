@@ -104,6 +104,14 @@ Probe 也算額度。來源在 rate limit 退避期間，probe 一樣會被擋�
 
 OKX 可能用 HTTP 200 回傳錯誤，錯誤放在回應的 `code` 欄位。只有 `code` 是 `"0"`（或 `0`）時才記成 `OK`；其他代碼依 [okx-envelope.ts](../apps/runtime/src/providers/okx-envelope.ts) 分類：`50011` 為 `RATE_LIMITED`，驗證相關（`50103`–`50107`、`50111`–`50114`）與地區封鎖（`50125`、`80001`）為 `UNAUTHORIZED`，`50026` 為 `SERVER_ERROR`，其餘為 `CLIENT_ERROR`。代碼記錄在 `raw_observations.error_class`（例如 `OKX_CODE_50113`），訊息在 `error_detail`。
 
+Helius（JSON-RPC）也以 HTTP 200 回傳錯誤，放在回應的 `error` 欄位。只有每個回應都有 `result`、沒有 `error` 時才記成 `OK`（`result` 是 `null` 也算）。錯誤依 JSON-RPC 2.0 規格定義的代碼範圍分類（[jsonrpc-envelope.ts](../apps/runtime/src/providers/jsonrpc-envelope.ts)）：
+
+- `-32700`、`-32600`、`-32601`、`-32602`（請求本身有誤）為 `CLIENT_ERROR`；
+- `-32603` 與 `-32000`～`-32099`（伺服器端）為 `SERVER_ERROR`，來源會退避；
+- 其他代碼一律 `CLIENT_ERROR`，不會被當成成功。
+
+代碼記錄為 `RPC_CODE_<代碼>`（例如 `RPC_CODE_-32005`）。同一個代碼在不同供應商的意思可能不同：`-32005` 在 Solana 的文件是節點落後，在 Helius 的 API schema 是請求過多。所以目前不依供應商解讀代碼，第一次以憑證 probe 時要打開原始回應確認。
+
 ## 額度
 
 本地上限定義在 [apps/runtime/src/quota/quota-ledger.ts](../apps/runtime/src/quota/quota-ledger.ts)：
@@ -242,7 +250,7 @@ npm run doctor -- --network    # 再加上供應商主機的連線（模式不�
 | Dashboard 顯示「心跳中斷」 | 該程序超過 30 秒沒有心跳：當掉、被終止、凍結或機器休眠。重新啟動它 |
 | 「本機時鐘與供應商的時間不一致」 | 本機時鐘與供應商回應的 `Date` 差了超過 5 秒（超過 30 秒為異常）。讓系統校時（Windows：設定 → 時間與語言 → 立即同步）。偏移過大時，OKX 的簽章請求會被拒絕 |
 | 整體狀態「需注意」 | 系統可以運作，但有設定不完整（例如沒有憑證）或接近上限的地方。頁首列出每一個原因 |
-| 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`。一直出現時，通常是端點或參數有誤 |
+| 來源狀態 `REQUEST_REJECTED` | 供應商有回應，但拒絕了這個請求（404、其他 4xx，或 OKX、Helius 以 HTTP 200 回傳的錯誤碼）。「最近結果」欄顯示錯誤類別，例如 `OKX_CODE_51000`、`RPC_CODE_-32602`。一直出現時，通常是端點或參數有誤 |
 | `Migration N (...) was changed after it was applied` | 有人改了已套用的 migration。還原該檔案，另外新增一個 migration |
 | `npm run probe` 一直顯示 queued | Worker 沒有在執行，或模式是 `OFF` |
 | `npm run backup`：`The restore check database "morrow_restore_check" does not exist` | 再跑一次 `.\scripts\pg-local.ps1 init`。在傾印之前就檢查，所以沒有寫出任何檔案 |
