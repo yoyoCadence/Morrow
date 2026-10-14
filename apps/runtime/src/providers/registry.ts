@@ -1,3 +1,4 @@
+import { readJsonRpcEnvelope } from './jsonrpc-envelope.js';
 import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import {
@@ -89,6 +90,8 @@ export const PROVIDERS: Readonly<Record<ProviderId, ProviderDefinition>> = {
     // Requests per second are counted per plan, across RPC methods.
     rateLimitScope: 'provider',
     metered: true,
+    // JSON-RPC errors arrive with HTTP 200.
+    readEnvelope: readJsonRpcEnvelope,
     authorize(spec, credentials) {
       if (!credentials.helius) return null;
       // Helius takes the key as a query parameter. It is appended here, after

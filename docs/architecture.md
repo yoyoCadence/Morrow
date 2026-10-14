@@ -64,7 +64,7 @@ Worker 程序內有兩條隊伍，各自一次只跑一個 job：
 2. **授權**：由供應商定義加上憑證。沒有設定憑證就回 `CREDENTIAL_MISSING`，不送出。
 3. **額度**：計量的供應商先向帳本預留。超過本地硬性上限就回 `QUOTA_HARD_STOP`，不送出。
 4. **節流**：依供應商的最小間隔排隊。等待之後才以當下時間產生授權（OKX 的簽章帶有時間，排隊期間產生的簽章可能已經過期）。
-5. **送出**：有逾時、有回應大小上限、不跟隨 redirect（避免憑證 header 被帶到別的主機）。先依 HTTP 狀態碼分類；供應商定義若有 `readEnvelope`（目前只有 OKX），2xx 回應還要回應本文同意才算 `OK`，本文裡的錯誤依代碼分類。
+5. **送出**：有逾時、有回應大小上限、不跟隨 redirect（避免憑證 header 被帶到別的主機）。先依 HTTP 狀態碼分類；供應商定義若有 `readEnvelope`（OKX 的 `{code, msg, data}`，以及 Helius 的 JSON-RPC），2xx 回應還要回應本文同意才算 `OK`，本文裡的錯誤依代碼分類。
 6. **存證與更新健康狀態**：同一個 transaction 寫入 `raw_observations` 與 `source_health`。結果是 `OK` 且該功能有 parser 時，同一個 transaction 也排入 `raw.parse` job（目前只有 DEX Screener `market.tokens`）。
 
 客戶端自己不重試。重試是一個新的請求，有自己的額度扣除，由工作佇列排程。

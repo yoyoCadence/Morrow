@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import type { ProviderCredentials } from '../config/config.js';
 import { QUOTA_POLICIES } from '../quota/quota-ledger.js';
 import { classifyFetchError, classifyStatus, clockOffsetMs, parseRetryAfterMs, parseServerDate } from './client.js';
+import { readJsonRpcEnvelope } from './jsonrpc-envelope.js';
 import { readOkxEnvelope } from './okx-envelope.js';
 import { signOkxRequest } from './okx-signing.js';
 import { SmoothRateLimiter } from './rate-limiter.js';
@@ -230,9 +231,10 @@ test('an OKX body is a success only when its envelope says so', () => {
   assert.equal(read('')?.errorClass, 'OKX_INVALID_JSON');
 });
 
-test('only OKX reads an envelope', () => {
+test('OKX and Helius read the errors their 200 responses carry; the others are judged by status', () => {
   assert.equal(PROVIDERS.okx.readEnvelope, readOkxEnvelope);
-  for (const id of ['jupiter', 'dexscreener', 'helius'] as const) {
+  assert.equal(PROVIDERS.helius.readEnvelope, readJsonRpcEnvelope);
+  for (const id of ['jupiter', 'dexscreener'] as const) {
     assert.equal(PROVIDERS[id].readEnvelope, undefined, id);
   }
 });
