@@ -308,7 +308,7 @@ export class ProviderClient {
       const body = await readBody(response, this.#options.maxBodyBytes ?? 8 * 1024 * 1024);
       const byStatus = classifyStatus(response.status);
       // A 2xx is only OK if the body agrees, for providers that report errors inside it.
-      const verdict = byStatus === 'OK' && provider.readEnvelope ? provider.readEnvelope(body) : null;
+      const verdict = byStatus === 'OK' && provider.readEnvelope ? provider.readEnvelope(body, authorized.body ?? null) : null;
       return {
         info: {
           outcome: verdict?.outcome ?? byStatus,

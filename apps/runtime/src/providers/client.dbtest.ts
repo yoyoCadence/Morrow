@@ -315,6 +315,21 @@ test('a JSON-RPC error inside an HTTP 200 is not reported as OK, and its message
 
   const working = capability('helius');
   assert.equal((await client.request({ capability: working, spec: get('/rpc-ok'), reason: 'probe' })).outcome, 'OK');
+
+  // The request that was sent reaches the check: an answer to another id is not an answer.
+  const call = (id: number): RequestSpec => ({
+    method: 'POST',
+    origin,
+    path: '/rpc-ok',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id, method: 'getHealth' }),
+  });
+  const answered = capability('helius');
+  assert.equal((await client.request({ capability: answered, spec: call(1), reason: 'probe' })).outcome, 'OK', 'the server answers id 1');
+  const misrouted = capability('helius');
+  const wrong = await client.request({ capability: misrouted, spec: call(7), reason: 'probe' });
+  assert.equal(wrong.outcome, 'CLIENT_ERROR');
+  assert.equal(wrong.detail, 'RPC_ID_MISMATCH');
 });
 
 test('rejected credentials are not retried automatically', async () => {

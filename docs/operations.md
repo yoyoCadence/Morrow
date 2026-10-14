@@ -104,7 +104,7 @@ Probe 也算額度。來源在 rate limit 退避期間，probe 一樣會被擋�
 
 OKX 可能用 HTTP 200 回傳錯誤，錯誤放在回應的 `code` 欄位。只有 `code` 是 `"0"`（或 `0`）時才記成 `OK`；其他代碼依 [okx-envelope.ts](../apps/runtime/src/providers/okx-envelope.ts) 分類：`50011` 為 `RATE_LIMITED`，驗證相關（`50103`–`50107`、`50111`–`50114`）與地區封鎖（`50125`、`80001`）為 `UNAUTHORIZED`，`50026` 為 `SERVER_ERROR`，其餘為 `CLIENT_ERROR`。代碼記錄在 `raw_observations.error_class`（例如 `OKX_CODE_50113`），訊息在 `error_detail`。
 
-Helius（JSON-RPC）也以 HTTP 200 回傳錯誤，放在回應的 `error` 欄位。只有每個回應都有 `result`、沒有 `error` 時才記成 `OK`（`result` 是 `null` 也算）。錯誤依 JSON-RPC 2.0 規格定義的代碼範圍分類（[jsonrpc-envelope.ts](../apps/runtime/src/providers/jsonrpc-envelope.ts)）：
+Helius（JSON-RPC）也以 HTTP 200 回傳錯誤，放在回應的 `error` 欄位。只有每個回應都有 `result`、沒有 `error`、寫明 `"jsonrpc": "2.0"`，而且回應的 id 對應送出的請求時，才記成 `OK`（`result` 是 `null` 也算；batch 要每個 id 恰好回答一次，順序不拘）。回答的是別的請求時記成 `RPC_ID_MISMATCH`。錯誤依 JSON-RPC 2.0 規格定義的代碼範圍分類（[jsonrpc-envelope.ts](../apps/runtime/src/providers/jsonrpc-envelope.ts)）：
 
 - `-32700`、`-32600`、`-32601`、`-32602`（請求本身有誤）為 `CLIENT_ERROR`；
 - `-32603` 與 `-32000`～`-32099`（伺服器端）為 `SERVER_ERROR`，來源會退避；

@@ -62,9 +62,11 @@ export interface ProviderDefinition {
   /**
    * For providers that can answer HTTP 2xx with an error inside the body:
    * reads a 2xx body and returns what it really says, or null when it
-   * confirms success. Without it, a 2xx is always OK.
+   * confirms success. Without it, a 2xx is always OK. `requestBody` is what
+   * was sent, so a reader can check that the answer is to this request;
+   * null for a request without a body.
    */
-  readonly readEnvelope?: (body: Buffer) => EnvelopeVerdict | null;
+  readonly readEnvelope?: (body: Buffer, requestBody: string | null) => EnvelopeVerdict | null;
 }
 
 export interface CapabilityDefinition {
