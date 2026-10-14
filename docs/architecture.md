@@ -38,7 +38,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 | `providers/` | 供應商定義、功能清單、HTTP 客戶端、來源健康狀態、probe |
 | `parsers/` | 把已存的供應商回應解析成 canonical events 與欄位 quarantine；只讀已存證據，不連線。單一筆記錄的問題只影響那一筆：無法表示的欄位為 `UNKNOWN`，不符合契約的記錄整筆進 quarantine，同一回應的其他記錄照常產生事件。`reparse.ts` 以目前的版本解析還沒解析過的已存回應（`npm run reparse`），舊版本的輸出不改動 |
 | `api/` | Fastify 伺服器、健康報告、觀測覆蓋、證據檢視與請求日誌的層級 |
-| `app/` | 把上述組成 API 與 worker 兩個程序 |
+| `app/` | 把上述組成 API 與 worker 兩個程序；`doctor.ts` 是 `npm run doctor` 的各項檢查（`providers/reachability.ts` 做供應商主機的 TLS 檢查，不送出請求） |
 | `cli.ts` | 指令進入點 |
 
 ## 兩個程序與單一 worker

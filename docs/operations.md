@@ -194,7 +194,37 @@ Worker 需要能直接連到：
 
 2026-10-05 起改用另一台開發機。在這台機器上，`api.dexscreener.com`、`api.jup.ag`、`web3.okx.com`、`mainnet.helius-rpc.com`、`api.mainnet-beta.solana.com`、`api.telegram.org`，以及 `developers.jup.ag`、`docs.dexscreener.com`、`www.helius.dev` 都能正常建立 TLS 連線，DEX Screener 的 probe 也實際回了 200。
 
+## 環境檢查
+
+```powershell
+npm run doctor                 # 只檢查本機
+npm run doctor -- --network    # 再加上供應商主機的連線（模式不能是 OFF）
+```
+
+一次列出這台機器能不能執行 Morrow，每一項是 `OK`、`WARN`、`FAIL`、`INFO` 或 `SKIP`：
+
+- Node.js 版本：與 `package.json` 的 `engines` 相同的範圍。
+- 儀表板是否已建置。
+- 目前的模式與 API 埠。
+- 資料庫：
+  - 是否連得上，伺服器版本（目標是 PostgreSQL 17）；
+  - migration 是否都已套用；
+  - 時鐘偏移：與健康報告同一個估計，樣本不足時為未知。
+- 備份需要的東西：
+  - `morrow_restore_check` 資料庫；
+  - `pg_dump`／`pg_restore` 在 PATH 上，而且不比伺服器舊；
+  - `MORROW_BACKUP_DIR`。
+- 每個供應商的憑證：只列設定的名稱與「已設定／未設定」，不會印出值。
+- `--network`：每個供應商主機的 DNS 與 TLS handshake，憑證以和 worker 相同的方式驗證。
+  - 不送出 HTTP 請求，所以不花額度、不帶憑證、不受 rate limit 影響；
+  - 但仍然是對供應商的連線，所以 `OFF` 模式不允許；
+  - `TLS_UNTRUSTED` 通常表示網路在攔截 TLS（見「網路」一節）。
+
+有任何 `FAIL` 時結束代碼為 1，否則為 0。`WARN` 表示某個功能還不能用（例如沒有憑證、沒有備份資料夾），不影響其他部分。
+
 ## 疑難排解
+
+遇到問題時，先執行 `npm run doctor`，它會指出大部分設定問題。
 
 | 現象 | 原因與處理 |
 |---|---|
