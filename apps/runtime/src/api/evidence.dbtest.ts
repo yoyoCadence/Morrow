@@ -64,8 +64,9 @@ before(async () => {
         requestUrl: 'https://mainnet.helius-rpc.com/',
         outcome: 'UNAUTHORIZED',
         httpStatus: 401,
+        contentType: `application/json; key=${SECRET}`,
         body: Buffer.from(`{"error":"invalid api key ${SECRET}"}`),
-        errorClass: 'HTTP_401',
+        errorClass: `HTTP_401_${SECRET}`,
         errorDetail: `rejected ${SECRET}`,
       }),
     )
@@ -127,6 +128,8 @@ test('secrets an error response echoed are removed when shown, and the stored by
   assert.equal(detail.body?.text, '{"error":"invalid api key [REDACTED]"}');
   assert.equal(detail.body?.redacted, true);
   assert.equal(detail.observation.error_detail, 'rejected [REDACTED]');
+  assert.equal(detail.observation.content_type, 'application/json; key=[REDACTED]', 'response headers come from the provider too');
+  assert.equal(detail.observation.error_class, 'HTTP_401_[REDACTED]');
   assert.doesNotMatch(JSON.stringify(detail), new RegExp(SECRET));
   const stored = await db.pool.query<{ body: Buffer }>(
     'SELECT p.body FROM raw_observations o JOIN raw_payloads p ON p.sha256 = o.payload_sha256 WHERE o.id = $1',

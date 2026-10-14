@@ -208,7 +208,7 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
   - `GET /api/raw-observations/:id`：單筆請求的本文（最多 256 KiB）、從它 quarantine 的欄位，以及引用它的事件。
   - `GET /api/quarantine?reason=&before=&limit=`：quarantine 的欄位。
   - 參數不合法時回 400，`error` 指出是哪一個（`INVALID_SUBJECT`、`INVALID_LIMIT`、`INVALID_CURSOR`、`INVALID_FILTER`、`INVALID_ID`）；查無該筆回 404；資料庫錯誤回 503 `EVIDENCE_UNAVAILABLE`，原因只寫在日誌。
-  - 來自外部的文字（本文、URL、錯誤訊息、quarantine 的原文）在送出前經過與日誌相同的 redactor：已知的憑證值與看起來像憑證的參數會被替換。資料庫裡的原始位元組是證據，不會改動。
+  - 來自供應商的每一段文字（本文、URL、content type、錯誤類別與訊息、quarantine 的原文與位置）在送出前經過與日誌相同的 redactor：已知的憑證值與看起來像憑證的參數會被替換。資料庫裡的原始位元組是證據，不會改動。
 - 目前只接受 `GET`／`HEAD`。寫入端點必須連同 session 與 CSRF 防護一起加入（M3）。
 
 ## 尚未實作

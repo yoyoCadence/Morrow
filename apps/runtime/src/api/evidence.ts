@@ -18,9 +18,10 @@ import type { Queryable } from '../db/pool.js';
 /*
  * Read-only queries behind the evidence browser (FT-01). Pages are newest
  * first and keyed on a monotonic id (`before`), so a page never shifts when
- * new rows arrive. Text that came from outside (bodies, URLs, error details,
- * quarantined values) passes through `redact` on the way out: the stored
- * bytes are evidence and stay exactly as received.
+ * new rows arrive. Every string that came from a provider (bodies, URLs,
+ * content types, error classes and details, quarantined values and where
+ * they were found) passes through `redact` on the way out: the stored bytes
+ * are evidence and stay exactly as received.
  */
 
 /** A request parameter that cannot be used; the API answers 400 with `error`. */
@@ -182,10 +183,10 @@ function observationView(row: ObservationRow, redact: (text: string) => string):
     reason: row.reason,
     outcome: row.outcome,
     http_status: row.http_status,
-    content_type: row.content_type,
+    content_type: row.content_type === null ? null : redact(row.content_type),
     payload_sha256: row.payload_sha256,
     byte_length: row.byte_length,
-    error_class: row.error_class,
+    error_class: row.error_class === null ? null : redact(row.error_class),
     error_detail: row.error_detail === null ? null : redact(row.error_detail),
     duration_ms: row.duration_ms,
     observed_at: row.observed_at.toISOString(),
@@ -223,7 +224,8 @@ export async function listRawObservations(
 /**
  * The body as text: UTF-8, cut at `RAW_BODY_PREVIEW_BYTES`, with anything
  * credential-shaped replaced. A cut that lands inside a multi-byte character
- * drops that character rather than inventing a replacement for it.
+ * drops that character rather than inventing a replacement for it. Only the
+ * part shown is checked for UTF-8: bytes after the cut are never read.
  */
 export function bodyView(
   sha256: string,
@@ -261,8 +263,8 @@ function quarantineView(row: QuarantineRow, redact: (text: string) => string): Q
     id: row.cursor,
     raw_observation_id: row.raw_observation_id,
     parser_version: row.parser_version,
-    record_ref: row.record_ref,
-    field_path: row.field_path,
+    record_ref: redact(row.record_ref),
+    field_path: redact(row.field_path),
     raw_value: row.raw_value === null ? null : redact(row.raw_value),
     reason: row.reason,
     quarantined_at: row.quarantined_at.toISOString(),

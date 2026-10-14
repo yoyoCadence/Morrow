@@ -46,6 +46,7 @@ export const RawObservationView = z.strictObject({
   request_method: z.enum(['GET', 'POST']),
   /** Never contains a credential: they are added at send time. Known secrets are also removed when read. */
   request_url: z.string(),
+  /* content_type, error_class and error_detail come from the provider and are redacted when read, like the body. */
   reason: z.enum(REQUEST_REASONS),
   outcome: RequestOutcome,
   http_status: z.number().int().nullable(),
@@ -75,7 +76,11 @@ export type RawObservationPage = z.infer<typeof RawObservationPage>;
 export const RawBodyView = z.strictObject({
   sha256: Sha256Hex,
   byte_length: z.number().int().min(0),
-  /** The body as UTF-8, cut at RAW_BODY_PREVIEW_BYTES; null when it is not valid UTF-8. */
+  /**
+   * The body as UTF-8, cut at RAW_BODY_PREVIEW_BYTES; null when that part is
+   * not valid UTF-8. When `truncated`, the bytes after the cut were neither
+   * read nor checked.
+   */
   text: z.string().nullable(),
   truncated: z.boolean(),
   /**
