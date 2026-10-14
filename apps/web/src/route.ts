@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
  */
 export type Route =
   | { readonly page: 'system' }
+  /** The latest snapshot of every pool. */
+  | { readonly page: 'market' }
   /** Events, optionally of one subject, with the latest observations and quarantined fields. */
   | { readonly page: 'evidence'; readonly subject: string | null }
   | { readonly page: 'observation'; readonly id: string };
@@ -16,6 +18,7 @@ const OBSERVATION_PATH = /^\/evidence\/observations\/([1-9]\d{0,18})\/?$/;
 export function parseRoute(pathname: string, search: string): Route {
   const observation = OBSERVATION_PATH.exec(pathname);
   if (observation?.[1]) return { page: 'observation', id: observation[1] };
+  if (pathname === '/market' || pathname === '/market/') return { page: 'market' };
   if (pathname === '/evidence' || pathname === '/evidence/') {
     const subject = new URLSearchParams(search).get('subject');
     return { page: 'evidence', subject: subject === null || subject === '' ? null : subject };
@@ -28,6 +31,8 @@ export function routePath(route: Route): string {
   switch (route.page) {
     case 'system':
       return '/';
+    case 'market':
+      return '/market';
     case 'evidence':
       return route.subject === null ? '/evidence' : `/evidence?subject=${encodeURIComponent(route.subject)}`;
     case 'observation':

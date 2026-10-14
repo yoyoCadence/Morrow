@@ -7,6 +7,7 @@ import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone }
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time.js';
 import { Ago, Badge, Section } from './ui.js';
 import { EvidencePage, Link, ObservationPage } from './Evidence.js';
+import { MarketPage } from './Market.js';
 import { useRoute } from './route.js';
 import { useCoverage } from './useCoverage.js';
 import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth.js';
@@ -595,12 +596,16 @@ export function App() {
           <Link to={{ page: 'system' }} current={route.page === 'system'}>
             系統
           </Link>
-          <Link to={{ page: 'evidence', subject: null }} current={route.page !== 'system'}>
+          <Link to={{ page: 'market' }} current={route.page === 'market'}>
+            市場
+          </Link>
+          <Link to={{ page: 'evidence', subject: null }} current={route.page === 'evidence' || route.page === 'observation'}>
             證據
           </Link>
         </nav>
       </header>
 
+      {route.page === 'market' ? <MarketPage now={clock} /> : null}
       {route.page === 'evidence' ? <EvidencePage subject={route.subject} now={clock} /> : null}
       {route.page === 'observation' ? <ObservationPage id={route.id} /> : null}
       {route.page === 'system' ? <SystemPage health={health} clock={clock} /> : null}

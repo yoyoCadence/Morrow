@@ -9,7 +9,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 ```text
                    ┌────────────────────────── apps/runtime ──────────────────────────┐
   瀏覽器 ── HTTP ──▶ API 程序（127.0.0.1）                                             │
-  （本機）          │   GET /api/health、coverage、證據（唯讀）、靜態 dashboard         │
+  （本機）          │   GET /api/health、coverage、市場、證據（唯讀）、靜態 dashboard   │
                    │                                                                  │
   資料供應商 ◀─────── Worker 程序                                                      │
                    │   job loop → ProviderClient → 額度／節流／存證                    │
@@ -22,7 +22,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 |---|---|---|
 | `packages/core` | 契約（zod schema 與型別）、與供應商無關的純邏輯 | 任何 I/O；任何供應商專屬的型別 |
 | `apps/runtime` | 設定、日誌、資料庫、jobs、執行階段、額度、供應商客戶端、API、CLI | 交易、簽署 |
-| `apps/web` | Dashboard：「系統」頁（健康、來源、額度、覆蓋）與「證據」頁（事件、原始觀測、quarantine），以路徑路由（`route.ts`）。以 core 的 schema 驗證 API 的回應；zod 設為 `jitless`，因為 API 的 CSP 不允許 eval | 直接連供應商或資料庫 |
+| `apps/web` | Dashboard：「系統」頁（健康、來源、額度、覆蓋）、「市場」頁（每個池子最新的 snapshot，不是 KNOWN 的值寫出原因）與「證據」頁（事件、原始觀測、quarantine），以路徑路由（`route.ts`）。以 core 的 schema 驗證 API 的回應；zod 設為 `jitless`，因為 API 的 CSP 不允許 eval | 直接連供應商或資料庫 |
 
 `apps/runtime/src` 的模組：
 
@@ -209,6 +209,7 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
   - `GET /api/quarantine?reason=&before=&limit=`：quarantine 的欄位。
   - 參數不合法時回 400，`error` 指出是哪一個（`INVALID_SUBJECT`、`INVALID_LIMIT`、`INVALID_CURSOR`、`INVALID_FILTER`、`INVALID_ID`）；查無該筆回 404；資料庫錯誤回 503 `EVIDENCE_UNAVAILABLE`，原因只寫在日誌。
   - 來自供應商的每一段文字（本文、URL、content type、錯誤類別與訊息、quarantine 的原文與位置）在送出前經過與日誌相同的 redactor：已知的憑證值與看起來像憑證的參數會被替換。資料庫裡的原始位元組是證據，不會改動。
+- 市場快照（FT-02，`api/market.ts`）：`GET /api/market/pairs`，每個池子最新的一筆 `pair.snapshot`。查詢是 loose index scan：逐一找出下一個池子地址，再取它最新的一筆，都走 migration `0008` 的部分索引，所以成本隨池子數增加，而不是隨 snapshot 的歷史長度增加。資料庫錯誤回 503 `MARKET_UNAVAILABLE`。
 - 目前只接受 `GET`／`HEAD`。寫入端點必須連同 session 與 CSRF 防護一起加入（M3）。
 
 ## 尚未實作

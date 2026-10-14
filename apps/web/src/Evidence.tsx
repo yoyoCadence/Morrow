@@ -38,7 +38,7 @@ export function Link({ to, children, current }: { to: Route; children: ReactNode
   );
 }
 
-function SubjectLink({ subject }: { subject: string }) {
+export function SubjectLink({ subject }: { subject: string }) {
   return (
     <span title={subject}>
       <Link to={{ page: 'evidence', subject }}>{shortSubject(subject)}</Link>
@@ -46,7 +46,7 @@ function SubjectLink({ subject }: { subject: string }) {
   );
 }
 
-function ObservationLink({ id }: { id: string }) {
+export function ObservationLink({ id }: { id: string }) {
   return <Link to={{ page: 'observation', id }}>#{id}</Link>;
 }
 
