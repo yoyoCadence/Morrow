@@ -1,4 +1,5 @@
-import { eventFactSha256, eventIdFor, NewEvent, type EventFact } from '@morrow/core';
+import { NewEvent, type EventFact } from '@morrow/core';
+import { eventFactSha256, eventIdFor } from '@morrow/core/node';
 import type { z } from 'zod';
 import type { Queryable } from '../db/pool.js';
 

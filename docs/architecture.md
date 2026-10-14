@@ -20,7 +20,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 
 | 套件 | 職責 | 不做的事 |
 |---|---|---|
-| `packages/core` | 契約（zod schema 與型別）、與供應商無關的純邏輯 | 任何 I/O；任何供應商專屬的型別 |
+| `packages/core` | 契約（zod schema 與型別）、與供應商無關的純邏輯。主要入口 `@morrow/core` 給 runtime 與儀表板共用，不得引用任何 Node 模組（`browser-safe.test.ts` 檢查編譯後的 import 圖）；需要 `node:crypto` 的事件 id 與 fact hash 在 `@morrow/core/node`，只有 runtime 使用 | 任何 I/O；任何供應商專屬的型別 |
 | `apps/runtime` | 設定、日誌、資料庫、jobs、執行階段、額度、供應商客戶端、API、CLI | 交易、簽署 |
 | `apps/web` | Dashboard：「系統」頁（健康、來源、額度、覆蓋）、「市場」頁（每個池子最新的 snapshot，不是 KNOWN 的值寫出原因）與「證據」頁（事件、原始觀測、quarantine），以路徑路由（`route.ts`）。以 core 的 schema 驗證 API 的回應；zod 設為 `jitless`，因為 API 的 CSP 不允許 eval | 直接連供應商或資料庫 |
 
