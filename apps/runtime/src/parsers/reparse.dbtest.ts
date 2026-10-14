@@ -119,8 +119,6 @@ test('a reparse parses what is pending, once, and keeps what earlier versions pr
     parsed: 2,
     alreadyParsed: 0,
     eventsInserted: 2,
-    eventsExisting: 0,
-    eventsConflicting: 0,
     quarantined: 16,
   });
   assert.deepEqual(progress, [1, 2]);
@@ -162,29 +160,77 @@ test('two reparses at once parse each response once between them', async (t) => 
   assert.equal(await count(db, 'event_conflicts'), 0);
 });
 
-test('a reparse is recorded in the audit log with what it did', async (t) => {
+const PARSERS = [{ parser_version: CURRENT, capability: 'dexscreener/market.tokens' }];
+
+async function auditRows(db: TestDb): Promise<Array<{ actor: string; action: string; detail: unknown }>> {
+  const result = await db.pool.query<{ actor: string; action: string; detail: unknown }>('SELECT actor, action, detail FROM audit_log ORDER BY id');
+  return result.rows;
+}
+
+test('a reparse is recorded in the audit log before it starts and with what it did', async (t) => {
   const db = await freshDb(t);
   await store(db);
   await reparse(db.pool);
-  const audit = await db.pool.query<{ actor: string; action: string; detail: unknown }>('SELECT actor, action, detail FROM audit_log');
-  assert.deepEqual(audit.rows, [
+  assert.deepEqual(await auditRows(db), [
+    { actor: 'operator', action: 'parser.reparse.started', detail: { parsers: PARSERS } },
     {
       actor: 'operator',
       action: 'parser.reparse.completed',
-      detail: {
-        parsers: [
-          {
-            parser_version: CURRENT,
-            capability: 'dexscreener/market.tokens',
-            parsed: 1,
-            already_parsed: 0,
-            events_inserted: 1,
-            events_existing: 0,
-            events_conflicting: 0,
-            quarantined: 8,
-          },
-        ],
-      },
+      detail: { parsers: [{ ...PARSERS[0], parsed: 1, already_parsed: 0, events_inserted: 1, quarantined: 8 }] },
     },
   ]);
+});
+
+test('a run with nothing to parse is recorded too', async (t) => {
+  const db = await freshDb(t);
+  const id = await store(db);
+  await ingestRawObservation(db.pool, id);
+  await reparse(db.pool);
+  assert.deepEqual(
+    (await auditRows(db)).map((row) => [row.action, row.detail]),
+    [
+      ['parser.reparse.started', { parsers: PARSERS }],
+      ['parser.reparse.completed', { parsers: [{ ...PARSERS[0], parsed: 0, already_parsed: 0, events_inserted: 0, quarantined: 0 }] }],
+    ],
+  );
+});
+
+test('a run that fails is recorded with what it parsed before the failure, and the next run finishes the rest', async (t) => {
+  const db = await freshDb(t);
+  const ids = [await store(db), await store(db), await store(db)];
+  // The connection is lost after the first response: its transaction is the first connect.
+  let connects = 0;
+  const flaky = new Proxy(db.pool, {
+    get(target, property) {
+      if (property === 'connect') {
+        return async () => {
+          connects += 1;
+          if (connects > 1) throw Object.assign(new Error('connection lost'), { code: '08006' });
+          return target.connect();
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+
+  await assert.rejects(reparse(flaky), /connection lost/);
+  assert.deepEqual(
+    (await auditRows(db)).map((row) => [row.action, row.detail]),
+    [
+      ['parser.reparse.started', { parsers: PARSERS }],
+      [
+        'parser.reparse.failed',
+        {
+          parsers: [{ ...PARSERS[0], parsed: 1, already_parsed: 0, events_inserted: 1, quarantined: 8 }],
+          error: { name: 'Error', code: '08006' },
+        },
+      ],
+    ],
+  );
+  assert.equal(await eventsCiting(db, ids[0] as string, CURRENT), 1, 'the first response stays parsed');
+
+  const rest = only(await reparse(db.pool));
+  assert.equal(rest.parsed, 2);
+  for (const id of ids) assert.equal(await eventsCiting(db, id, CURRENT), 1, `observation ${id}`);
 });

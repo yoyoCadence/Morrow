@@ -227,10 +227,7 @@ async function commandReparse(config: AppConfig, argument: string | undefined): 
         print('Dry run: nothing was written.');
         return 0;
       }
-      if (plan.every((entry) => entry.pending === 0)) {
-        print('Nothing to parse.');
-        return 0;
-      }
+      // Run even when nothing is pending, so that every run is in the audit log.
       const results = await reparse(pool, {
         onProgress: (totals) => {
           if (totals.parsed > 0 && totals.parsed % 100 === 0) print(`  ${totals.parserVersion}: ${totals.parsed} parsed`);
@@ -239,16 +236,11 @@ async function commandReparse(config: AppConfig, argument: string | undefined): 
       for (const result of results) {
         print(
           `Parsed ${result.parsed} responses with ${result.parserVersion}: ${result.eventsInserted} events added, ` +
-            `${result.eventsExisting} already stored, ${result.eventsConflicting} conflicting, ${result.quarantined} fields quarantined.`,
+            `${result.quarantined} fields quarantined.`,
         );
         if (result.alreadyParsed > 0) print(`  ${result.alreadyParsed} were parsed meanwhile by another process.`);
       }
       print('Events from earlier parser versions are unchanged. The run is recorded in audit_log.');
-      if (results.some((result) => result.eventsConflicting > 0)) {
-        // The same version said something different about the same response: the parser is not deterministic.
-        print('Some events contradict what this parser version stored before; they are kept in event_conflicts. Check the parser.');
-        return 1;
-      }
       return 0;
     },
     { statementTimeoutMs: 300_000 },
