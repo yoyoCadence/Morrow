@@ -59,7 +59,7 @@ This file is the shared collaboration contract for Codex, Claude Code, and human
 > As of M0 (2026-10-05). Details: `docs/architecture.md`, `docs/contracts.md`, `docs/operations.md`. Status and evidence: `PROJECT_STATUS.md`.
 
 - **Main entry points:**
-  - `apps/runtime/src/cli.ts` — every command (`migrate`, `api`, `worker`, `stop`, `probe`, `status`, `storage`)
+  - `apps/runtime/src/cli.ts` — every command (`migrate`, `api`, `worker`, `stop`, `probe`, `status`, `storage`, `backup`, `reparse`)
   - `apps/runtime/src/app/processes.ts` — wiring of the API and worker processes; job handlers are registered in `defaultHandlers`, fixed schedules (`apps/runtime/src/jobs/scheduler.ts`) in `defaultSchedules`
   - `apps/runtime/src/providers/client.ts` — `ProviderClient.request()`, the only path to a data provider. Never call `fetch` on a provider directly.
   - `apps/runtime/src/providers/registry.ts` — provider definitions and the capability list

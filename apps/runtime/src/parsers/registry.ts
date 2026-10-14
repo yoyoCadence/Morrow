@@ -8,3 +8,8 @@ const PARSERS: readonly RawParser[] = [dexscreenerTokensParser];
 export function parserFor(provider: string, capability: string): RawParser | null {
   return PARSERS.find((parser) => parser.provider === provider && parser.capability === capability) ?? null;
 }
+
+/** Every registered parser, in registration order. */
+export function allParsers(): readonly RawParser[] {
+  return PARSERS;
+}

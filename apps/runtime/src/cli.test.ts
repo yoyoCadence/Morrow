@@ -48,7 +48,7 @@ test('starting the API or worker in a live mode is refused before anything else 
 });
 
 test('other commands refuse a live mode as well', async () => {
-  const commands = ['migrate', 'probe', 'status', 'stop', 'storage', 'backup'];
+  const commands = ['migrate', 'probe', 'status', 'stop', 'storage', 'backup', 'reparse'];
   const results = await Promise.all(
     commands.map((command) => runCli([command], { MORROW_MODE: 'LIVE_CANARY', MORROW_DATABASE_URL: UNREACHABLE_DB })),
   );
@@ -129,4 +129,10 @@ test('migration checksums ignore line-ending differences only', () => {
   assert.equal(migrationChecksum('CREATE TABLE a ();\r\nSELECT 1;\r\n'), migrationChecksum('CREATE TABLE a ();\nSELECT 1;\n'));
   assert.notEqual(migrationChecksum('CREATE TABLE a ();\n'), migrationChecksum('CREATE TABLE b ();\n'));
   assert.notEqual(migrationChecksum('SELECT 1;\n'), migrationChecksum('SELECT 1; \n'), 'other whitespace still counts');
+});
+
+test('reparse rejects an option it does not know before touching the database', async () => {
+  const result = await runCli(['reparse', '--force'], { MORROW_MODE: 'OFF', MORROW_DATABASE_URL: UNREACHABLE_DB });
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stdout, /Unknown option "--force"\. Usage: morrow reparse \[--dry-run\]/);
 });

@@ -6,7 +6,13 @@ import { parserFor } from './registry.js';
 import type { RawParser, StoredObservation } from './types.js';
 
 export const PARSE_JOB_KIND = 'raw.parse';
-const CONSUMER = 'raw.parse';
+/** The consumer_inbox consumer that records which observation each parser version has processed. */
+export const PARSE_CONSUMER = 'raw.parse';
+
+/** The consumer_inbox key saying that `parserVersion` has processed this observation. */
+export function parsedMarkKey(parserVersion: string, rawObservationId: string): string {
+  return `${parserVersion}:${rawObservationId}`;
+}
 
 /**
  * Schedules parsing of a stored observation. Call it in the transaction that
@@ -83,7 +89,7 @@ export async function ingestRawObservation(pool: pg.Pool, rawObservationId: stri
   const parsed = parser.parse(observation);
 
   return withTransaction(pool, async (tx) => {
-    if (!(await markProcessed(tx, CONSUMER, `${parser.version}:${row.id}`))) {
+    if (!(await markProcessed(tx, PARSE_CONSUMER, parsedMarkKey(parser.version, row.id)))) {
       return { ...nothing, parserVersion: parser.version, skipped: 'ALREADY_PROCESSED' };
     }
     let eventsInserted = 0;
