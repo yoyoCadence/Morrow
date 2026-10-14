@@ -1,10 +1,13 @@
 import type { CoverageReport, HealthReport } from '@morrow/core';
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { COVERAGE_REASON_LABELS, coverageKind, coveragePercent, formatSpan, gapTotals } from './coverage.js';
 import { describeProjection, projectHardStop } from './quota.js';
 import { bucketUsage, groupSources, groupSummary, sourceTone } from './sources.js';
 import { faviconPath, indicators, LEVELS, pageTitle, type PageState, type Tone } from './status.js';
 import { formatRelative, formatTime, freshness, serverNow, type Freshness } from './time.js';
+import { Ago, Badge, Section } from './ui.js';
+import { EvidencePage, Link, ObservationPage } from './Evidence.js';
+import { useRoute } from './route.js';
 import { useCoverage } from './useCoverage.js';
 import { REFRESH_MS, useHealth, useNow, type HealthState } from './useHealth.js';
 
@@ -22,30 +25,6 @@ const GAP_LABELS: Record<HealthReport['recent_gaps'][number]['kind'], string> = 
   OFFLINE: '離線',
   HEARTBEAT_STALL: '休眠或凍結',
 };
-
-function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className={`badge badge-${tone}`}>{children}</span>;
-}
-
-function Section({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
-  return (
-    <section className="card">
-      <h2>{title}</h2>
-      {hint ? <p className="hint">{hint}</p> : null}
-      {children}
-    </section>
-  );
-}
-
-/** A relative time such as "12 秒前", with the full Taipei time as its tooltip. */
-function Ago({ iso, now }: { iso: string | null; now: number }) {
-  if (iso === null) return <>—</>;
-  return (
-    <time dateTime={iso} title={`${formatTime(iso)}（台北）`}>
-      {formatRelative(Date.parse(iso), now)}
-    </time>
-  );
-}
 
 /** RUNNING is only shown as healthy while the session still heartbeats. */
 function SessionBadge({ session }: { session: HealthReport['sessions'][number] }) {
@@ -597,8 +576,10 @@ export function App() {
   const health = useHealth();
   const now = useNow();
   const received = health.kind === 'ready' ? health : health.kind === 'unreachable' ? health.last : null;
-  const report = received?.report ?? null;
   useTabState(health.kind === 'ready' ? health.report.status : health.kind);
+  const route = useRoute();
+  // Ages are counted on the server's clock once a report has arrived, as on the system page.
+  const clock = received ? serverNow(received.report.time, received.requestedAt.getTime(), now) : now;
 
   return (
     <main>
@@ -610,8 +591,29 @@ export function App() {
         <p className="paper-banner" role="note">
           僅限研究與 Paper 模式 · 實盤交易已停用（沒有簽署金鑰，所有實盤額度為 0）
         </p>
+        <nav className="pages" aria-label="頁面">
+          <Link to={{ page: 'system' }} current={route.page === 'system'}>
+            系統
+          </Link>
+          <Link to={{ page: 'evidence', subject: null }} current={route.page !== 'system'}>
+            證據
+          </Link>
+        </nav>
       </header>
 
+      {route.page === 'evidence' ? <EvidencePage subject={route.subject} now={clock} /> : null}
+      {route.page === 'observation' ? <ObservationPage id={route.id} /> : null}
+      {route.page === 'system' ? <SystemPage health={health} clock={clock} /> : null}
+    </main>
+  );
+}
+
+/** Health, sources, quota and coverage: what the dashboard showed before it had pages. */
+function SystemPage({ health, clock }: { health: HealthState; clock: number }) {
+  const received = health.kind === 'ready' ? health : health.kind === 'unreachable' ? health.last : null;
+  const report = received?.report ?? null;
+  return (
+    <>
       {health.kind === 'loading' ? <p className="empty">讀取中…</p> : null}
       {health.kind === 'unreachable' ? (
         <p className="alert" role="alert">
@@ -624,9 +626,9 @@ export function App() {
       {received ? (
         // Dimmed while the API is unreachable: it is the last known state, not the current one.
         <div className={health.kind === 'unreachable' ? 'report report-stale' : 'report'}>
-          <Report report={received.report} now={serverNow(received.report.time, received.requestedAt.getTime(), now)} />
+          <Report report={received.report} now={clock} />
         </div>
       ) : null}
-    </main>
+    </>
   );
 }

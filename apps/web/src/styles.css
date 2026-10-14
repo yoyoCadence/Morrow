@@ -46,6 +46,10 @@ body {
   margin: 0;
 }
 
+a {
+  color: var(--focus);
+}
+
 main {
   max-width: 1080px;
   margin: 0 auto;
@@ -672,3 +676,170 @@ tbody tr:last-child td {
  * @media (prefers-reduced-motion: no-preference), so it is opt-in by default.
  */
 
+
+/* Pages (UI-10): a plain row of links. The current page is marked in text weight and an underline, not by colour alone. */
+.pages {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pages a {
+  padding: 6px 12px;
+  color: var(--muted);
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.pages a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--text);
+}
+
+/* Evidence browser (FT-01). */
+.subject-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.subject-filter label {
+  display: flex;
+  flex: 1 1 280px;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.subject-filter p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+input[type="text"],
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+input[type="text"] {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--bad);
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  color: var(--muted);
+}
+
+.more {
+  margin-top: 12px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.muted-cell {
+  color: var(--muted);
+}
+
+/* Provider text: shown exactly, wrapped rather than scrolled, so a long URL or token never widens the page. */
+pre.json,
+pre.body {
+  margin: 8px 0 0;
+  padding: 12px;
+  max-height: 480px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* Narrow tables right-align their values; code always reads from the left. */
+  text-align: left;
+}
+
+/* A button that reads as a link: it toggles something on the page rather than going anywhere. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--focus);
+  text-decoration: underline;
+}
+
+/* An opened event: its payload under the row, across the whole table. */
+table tbody tr.detail-row td {
+  padding-top: 0;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 16px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--muted);
+}
+
+.facts dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.event-list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.back {
+  margin: 0 0 12px;
+}
+
+@media (max-width: 640px) {
+  /* An opened event's payload is a block of its own, not a labelled line of a card. */
+  .responsive tr.detail-row td {
+    display: block;
+  }
+
+  .responsive tr.detail-row td::before {
+    content: none;
+  }
+
+  .facts {
+    grid-template-columns: 1fr;
+    gap: 2px;
+  }
+
+  .facts dd {
+    margin-bottom: 8px;
+  }
+}
