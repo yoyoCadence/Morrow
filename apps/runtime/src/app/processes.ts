@@ -104,6 +104,7 @@ export async function startApiProcess(deps: ProcessDeps & { readonly webRoot?: s
       mode: deps.config.mode,
       version: APP_VERSION,
       port: deps.config.apiPort,
+      redact: deps.redact,
       ...(deps.webRoot !== undefined ? { webRoot: deps.webRoot } : {}),
       ...(deps.migrationsDir !== undefined ? { migrationsDir: deps.migrationsDir } : {}),
     });

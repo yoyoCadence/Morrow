@@ -7,5 +7,6 @@ export * from './contracts/event.js';
 export * from './contracts/modes.js';
 export * from './contracts/health.js';
 export * from './contracts/coverage.js';
+export * from './contracts/evidence.js';
 export * from './contracts/market.js';
 export * from './numeric/decimal.js';

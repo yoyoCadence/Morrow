@@ -9,7 +9,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 ```text
                    ┌────────────────────────── apps/runtime ──────────────────────────┐
   瀏覽器 ── HTTP ──▶ API 程序（127.0.0.1）                                             │
-  （本機）          │   GET /api/health、/api/coverage、靜態 dashboard                 │
+  （本機）          │   GET /api/health、coverage、證據（唯讀）、靜態 dashboard         │
                    │                                                                  │
   資料供應商 ◀─────── Worker 程序                                                      │
                    │   job loop → ProviderClient → 額度／節流／存證                    │
@@ -37,7 +37,7 @@ Modular monolith：一個 repo、一個 PostgreSQL、兩個進入點。
 | `quota/` | 額度政策與帳本 |
 | `providers/` | 供應商定義、功能清單、HTTP 客戶端、來源健康狀態、probe |
 | `parsers/` | 把已存的供應商回應解析成 canonical events 與欄位 quarantine；只讀已存證據，不連線。單一筆記錄的問題只影響那一筆：無法表示的欄位為 `UNKNOWN`，不符合契約的記錄整筆進 quarantine，同一回應的其他記錄照常產生事件 |
-| `api/` | Fastify 伺服器、健康報告與請求日誌的層級 |
+| `api/` | Fastify 伺服器、健康報告、觀測覆蓋、證據檢視與請求日誌的層級 |
 | `app/` | 把上述組成 API 與 worker 兩個程序 |
 | `cli.ts` | 指令進入點 |
 
@@ -202,6 +202,13 @@ Health 不只看 `run_sessions.status`：程序被強制終止後，紀錄會一
 - `Host` header 必須是本伺服器的位址（防 DNS rebinding）。
 - 若有 `Origin` header，必須是本伺服器（防其他網站從瀏覽器呼叫）。
 - 唯讀端點：`GET /api/health`（健康報告）、`GET /api/coverage?hours=24|168`（觀測覆蓋；其他時間長度回 400，資料庫錯誤回 503，原因只寫在日誌）。
+- 證據（FT-01，`api/evidence.ts`，契約見 [contracts.md](contracts.md)）：
+  - `GET /api/events?subject=&before=&limit=`：某個 subject（或全部）的事件，新的在前。
+  - `GET /api/raw-observations?provider=&capability=&before=&limit=`：送出過的請求。
+  - `GET /api/raw-observations/:id`：單筆請求的本文（最多 256 KiB）、從它 quarantine 的欄位，以及引用它的事件。
+  - `GET /api/quarantine?reason=&before=&limit=`：quarantine 的欄位。
+  - 參數不合法時回 400，`error` 指出是哪一個（`INVALID_SUBJECT`、`INVALID_LIMIT`、`INVALID_CURSOR`、`INVALID_FILTER`、`INVALID_ID`）；查無該筆回 404；資料庫錯誤回 503 `EVIDENCE_UNAVAILABLE`，原因只寫在日誌。
+  - 來自供應商的每一段文字（本文、URL、content type、錯誤類別與訊息、quarantine 的原文與位置）在送出前經過與日誌相同的 redactor：已知的憑證值與看起來像憑證的參數會被替換。資料庫裡的原始位元組是證據，不會改動。
 - 目前只接受 `GET`／`HEAD`。寫入端點必須連同 session 與 CSRF 防護一起加入（M3）。
 
 ## 尚未實作

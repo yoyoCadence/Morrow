@@ -92,6 +92,20 @@
 | `slot`、`commitment` | 鏈上資料才有；鏈下來源為 null |
 | `coverage` | `COMPLETE`、`PARTIAL` 或 `UNKNOWN`，附說明（例如「只有前 100 名持有人」） |
 
+## 證據檢視（FT-01）
+
+`contracts/evidence.ts`，供 `GET /api/events`、`/api/raw-observations`、`/api/raw-observations/:id`、`/api/quarantine` 使用。全部是 append-only 表的投影，沒有任何計算或推測。
+
+| 契約 | 內容 |
+|---|---|
+| `EventPage` | `StoredEvent`（`CanonicalEvent` 加上插入順序 `recorded_seq`）的清單，新的在前，加上下一頁的 `next_before` |
+| `RawObservationPage`、`RawObservationView` | 每一次送出的請求：供應商、功能、URL（不含憑證）、結果、HTTP 狀態、錯誤、時間、時鐘偏移、本文大小 |
+| `RawObservationDetail` | 一筆觀測，加上本文（`RawBodyView`）、從它 quarantine 的欄位，以及在 provenance 引用它的事件（最多 `OBSERVATION_EVENTS_MAX` 筆，超過時 `events_truncated`） |
+| `RawBodyView` | 本文的 UTF-8 文字，最多 `RAW_BODY_PREVIEW_BYTES`（256 KiB，`truncated` 表示有截斷）；這一段不是合法 UTF-8 時 `text` 為 null。截斷時，截斷點之後的位元組沒有讀取，也沒有檢查。看起來像憑證的內容在顯示時被替換（`redacted`），資料庫裡的位元組不變 |
+| `QuarantinePage`、`QuarantineEntryView` | parser 收到但不猜測解讀的欄位：原文（最多 1000 字元）、JSON 路徑、原因 |
+
+分頁以單調遞增的 id 為游標（`before` = 上一頁的 `next_before`），新資料進來時既有的頁面不會位移。id 與序號以字串傳遞：`bigint` 放不進 JavaScript 的 number。每頁預設 `EVIDENCE_PAGE_DEFAULT`（50）筆，最多 `EVIDENCE_PAGE_MAX`（200）筆。
+
 ## 運作模式
 
 `OperatingMode` 列出藍圖定義的全部 8 種模式，但只有 `OFF`、`RESEARCH`、`PAPER` 可以啟動。`requireEnabledMode()` 對其他值（包含 `SHADOW`、`LIVE_CANARY`、`EXIT_ONLY`、`GUARDED_AUTO`、`FULL_AUTO`）丟出 `ModeNotEnabledError`。放寬這份清單是後續里程碑中由人做的決定，系統內沒有任何路徑可以自行變更。

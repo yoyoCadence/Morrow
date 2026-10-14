@@ -50,7 +50,9 @@ test('a backup restores into the check database and matches its manifest, table 
   assert.equal(manifest.tables['run_sessions'], 1);
   assert.equal(manifest.tables['session_gaps'], 1);
   assert.equal(manifest.tables['quota_counters'], 1);
-  assert.equal(manifest.migrations.length, 6);
+  const applied = await db.pool.query<{ n: number }>('SELECT count(*)::int AS n FROM schema_migrations');
+  assert.equal(manifest.migrations.length, applied.rows[0]?.n, 'every applied migration');
+  assert.ok(manifest.migrations.length >= 6);
   assert.ok(manifest.triggers.includes('schedule_gaps_append_only'), 'the append-only guards are part of the backup');
   assert.equal(JSON.parse(await readFile(backup.manifestFile, 'utf8')).sha256, manifest.sha256);
 

@@ -80,7 +80,7 @@ Task IDs (E0.1, E1.1, ...) come from [docs/plans/active-plan.md](docs/plans/acti
 
 都在 M0–M4 授權範圍內，不新增費用。
 
-- [ ] **FT-01 證據瀏覽器**（P1，E4.1 的前置）— 依 subject 查事件、raw observation 的中繼資料與本文、quarantine 清單。唯讀 API，維持 GET only。
+- [ ] **FT-01 證據瀏覽器**（P1，E4.1 的前置）— 依 subject 查事件、raw observation 的中繼資料與本文、quarantine 清單。唯讀 API，維持 GET only。 **進度**：唯讀 API 已完成（2026-10-14）：`GET /api/events`、`/api/raw-observations`、`/api/raw-observations/:id`、`/api/quarantine`，契約在 `packages/core/src/contracts/evidence.ts`，以單調 id 分頁、外部文字在送出前遮蔽憑證、本文最多 256 KiB；migration `0007` 為 subject 分頁與「引用某筆觀測的事件」加上索引。剩下儀表板的頁面，與 UI-10 的導覽一起做。
 - [ ] **FT-02 市場快照頁**（P1，需 FT-01）— 每個 pair 的最新 snapshot；`UNKNOWN` 顯示原因（例如「單位未確認」），不畫成 0 或空白。
 - [ ] **FT-04 `morrow reparse`**（P2）— Parser 升版後重新解析既有證據，舊版本的事件保留不改寫。
 - [ ] **FT-05 `morrow doctor`**（P2）— 檢查工具鏈、資料庫、migration、憑證是否存在（不顯示值）、主機可達性、時鐘偏移。
