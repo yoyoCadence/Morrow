@@ -3,8 +3,11 @@ import { existsSync } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
 import path from 'node:path';
 import { test } from 'node:test';
-import { chromium } from 'playwright';
+import { chromium, type Page } from 'playwright';
 import type pg from 'pg';
+import { sha256Hex, storeRawObservation } from '../db/raw-store.js';
+import { WSOL_TOKENS_RESPONSE } from '../parsers/fixtures/dexscreener-tokens-wsol.js';
+import { ingestRawObservation } from '../parsers/ingest.js';
 import { createTestDb, defer, silentLogger } from '../test-support/db.js';
 import { API_HOST, buildApiServer, DEFAULT_WEB_ROOT } from './server.js';
 
@@ -13,7 +16,8 @@ import { API_HOST, buildApiServer, DEFAULT_WEB_ROOT } from './server.js';
  * API from a seeded test database: light and dark, at 1280 px and at 390 px.
  * It checks what the unit tests cannot: the page loads under the API's CSP,
  * renders every section from real answers without an error, follows the
- * colour scheme, and never scrolls sideways.
+ * colour scheme, and never scrolls sideways. The same goes for the evidence
+ * page and an observation's detail, reached through the page links.
  *
  * Needs the dashboard build (`npm run build`) and Chromium
  * (`npx playwright install --only-shell chromium`), or MORROW_E2E_CHROMIUM
@@ -72,6 +76,42 @@ async function seed(pool: pg.Pool): Promise<void> {
            ('okx', 'premium', date_trunc('month', now() AT TIME ZONE 'UTC')::date, 72000)`);
 }
 
+/** A real DEX Screener response, stored and parsed: one event and some quarantined fields to browse. */
+async function seedEvidence(pool: pg.Pool): Promise<string> {
+  const stored = await storeRawObservation(pool, {
+    provider: 'dexscreener',
+    providerGroup: 'dexscreener',
+    capability: 'market.tokens',
+    requestMethod: 'GET',
+    requestUrl: 'https://api.dexscreener.com/tokens/v1/solana/So11111111111111111111111111111111111111112',
+    requestFingerprint: sha256Hex('smoke'),
+    reason: 'scheduled',
+    outcome: 'OK',
+    httpStatus: 200,
+    contentType: 'application/json',
+    body: Buffer.from(WSOL_TOKENS_RESPONSE.body, 'utf8'),
+    errorClass: null,
+    errorDetail: null,
+    durationMs: 113,
+    observedAt: new Date(),
+    runSessionId: null,
+  });
+  await ingestRawObservation(pool, stored.id);
+  return stored.id;
+}
+
+/** Fails when the page, or any card on it, scrolls sideways. */
+async function assertNoSidewaysScroll(page: Page, where: string): Promise<void> {
+  const sideways = await page.evaluate<number>('document.documentElement.scrollWidth - document.documentElement.clientWidth');
+  assert.equal(sideways, 0, `${where}: the page scrolls sideways`);
+  const scrollingCards = await page.evaluate<string[]>(
+    `[...document.querySelectorAll('section.card')]
+       .filter((card) => card.scrollWidth > card.clientWidth)
+       .map((card) => card.querySelector('h2')?.textContent ?? '?')`,
+  );
+  assert.deepEqual(scrollingCards, [], `${where}: cards that scroll sideways`);
+}
+
 /** Relative luminance of a CSS `rgb(…)` colour, from 0 (black) to 1 (white). */
 function luminance(color: string): number {
   const channels = color.match(/\d+(\.\d+)?/g)?.slice(0, 3).map(Number) ?? [];
@@ -89,6 +129,7 @@ test('the dashboard renders from the real API, light and dark, wide and narrow',
   const db = await createTestDb();
   defer(t, () => db.close());
   await seed(db.pool);
+  const observationId = await seedEvidence(db.pool);
 
   const port = await freePort();
   const app = await buildApiServer({ pool: db.pool, logger: silentLogger, mode: 'RESEARCH', version: 'smoke', port });
@@ -135,18 +176,33 @@ test('the dashboard renders from the real API, light and dark, wide and narrow',
         assert.match(down, /DOWN/);
         assert.match(down, /premium · 84%/, 'the bucket and its share, from the registry and the quota counters');
 
-        const sideways = await page.evaluate<number>('document.documentElement.scrollWidth - document.documentElement.clientWidth');
-        assert.equal(sideways, 0, 'the page scrolls sideways');
-        const scrollingCards = await page.evaluate<string[]>(
-          `[...document.querySelectorAll('section.card')]
-             .filter((card) => card.scrollWidth > card.clientWidth)
-             .map((card) => card.querySelector('h2')?.textContent ?? '?')`,
-        );
-        assert.deepEqual(scrollingCards, [], 'cards that scroll sideways');
+        await assertNoSidewaysScroll(page, 'system');
 
         const background = luminance(await page.evaluate<string>('getComputedStyle(document.documentElement).backgroundColor'));
         if (view.colorScheme === 'dark') assert.ok(background < 0.1, `dark background, luminance ${background}`);
         else assert.ok(background > 0.8, `light background, luminance ${background}`);
+
+        // The evidence page, through the page links, then one observation and back.
+        await page.getByRole('link', { name: '證據', exact: true }).click();
+        await page.locator('.evidence-events tbody tr').first().waitFor();
+        assert.equal(new URL(page.url()).pathname, '/evidence');
+        assert.match(await page.locator('.evidence-events tbody').innerText(), /market · pair\.snapshot/);
+        await page.locator('.evidence-quarantine tbody tr').first().waitFor();
+        // An event's payload opens in a row of its own, as wide as the table.
+        await page.getByRole('button', { name: '展開' }).first().click();
+        assert.match(await page.locator('.detail-row pre.json').innerText(), /"evidence_refs"/);
+        await assertNoSidewaysScroll(page, 'evidence');
+
+        await page.locator('.evidence-observations').getByRole('link', { name: `#${observationId}` }).click();
+        await page.locator('pre.body').waitFor();
+        assert.equal(new URL(page.url()).pathname, `/evidence/observations/${observationId}`);
+        assert.match(await page.locator('pre.body').innerText(), /"pairAddress"/, 'the stored response, as received');
+        assert.match(await page.locator('.event-list').innerText(), /market · pair\.snapshot/);
+        await assertNoSidewaysScroll(page, 'observation');
+
+        await page.goBack();
+        await page.locator('.evidence-events tbody tr').first().waitFor();
+        assert.equal(new URL(page.url()).pathname, '/evidence', 'the back button returns to the list');
 
         assert.deepEqual(problems, []);
       } finally {
@@ -154,4 +210,27 @@ test('the dashboard renders from the real API, light and dark, wide and narrow',
       }
     });
   }
+
+  await t.test('a list that fails to load can be retried without reloading the page', async () => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    try {
+      // The first quarantine request fails as if the API were restarting; later ones go through.
+      let failed = false;
+      await page.route('**/api/quarantine', async (route) => {
+        if (failed) return route.continue();
+        failed = true;
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"EVIDENCE_UNAVAILABLE"}' });
+      });
+      await page.goto(`${origin}/evidence`);
+      const retry = page.getByRole('button', { name: '重試' });
+      await retry.waitFor();
+      assert.match(await page.locator('.alert').filter({ has: retry }).innerText(), /HTTP 503/);
+      await retry.click();
+      await page.locator('.evidence-quarantine tbody tr').first().waitFor();
+      assert.equal(await retry.count(), 0, 'the alert is gone once the list loads');
+    } finally {
+      await context.close();
+    }
+  });
 });
