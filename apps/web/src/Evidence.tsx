@@ -51,7 +51,17 @@ function ObservationLink({ id }: { id: string }) {
 }
 
 function MoreButton({ list, label }: { list: PagedList<unknown>; label: string }) {
-  if (list.state === 'error') return <p className="alert">無法取得（{list.error}）。</p>;
+  // A failed page keeps its cursor, so trying again asks for that same page; what was loaded stays.
+  if (list.state === 'error') {
+    return (
+      <p className="alert" role="alert">
+        無法取得（{list.error}）。{' '}
+        <button type="button" onClick={list.loadMore}>
+          重試
+        </button>
+      </p>
+    );
+  }
   if (!list.hasMore) return null;
   return (
     <button type="button" className="more" onClick={list.loadMore} disabled={list.state === 'more'}>

@@ -210,4 +210,27 @@ test('the dashboard renders from the real API, light and dark, wide and narrow',
       }
     });
   }
+
+  await t.test('a list that fails to load can be retried without reloading the page', async () => {
+    const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+    const page = await context.newPage();
+    try {
+      // The first quarantine request fails as if the API were restarting; later ones go through.
+      let failed = false;
+      await page.route('**/api/quarantine', async (route) => {
+        if (failed) return route.continue();
+        failed = true;
+        return route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"EVIDENCE_UNAVAILABLE"}' });
+      });
+      await page.goto(`${origin}/evidence`);
+      const retry = page.getByRole('button', { name: '重試' });
+      await retry.waitFor();
+      assert.match(await page.locator('.alert').filter({ has: retry }).innerText(), /HTTP 503/);
+      await retry.click();
+      await page.locator('.evidence-quarantine tbody tr').first().waitFor();
+      assert.equal(await retry.count(), 0, 'the alert is gone once the list loads');
+    } finally {
+      await context.close();
+    }
+  });
 });

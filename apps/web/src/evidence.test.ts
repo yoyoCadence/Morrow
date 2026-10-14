@@ -3,8 +3,13 @@ import { test } from 'node:test';
 import { REQUEST_OUTCOMES } from '@morrow/core';
 import { formatSize, indentJson, observationIdOf, outcomeTone, prettyBody, shortSubject } from './evidence.js';
 
-test('asset subjects are shortened to their network and the ends of the mint', () => {
-  assert.equal(shortSubject('solana:mainnet-beta:So11111111111111111111111111111111111111112'), 'solana · So11…1112');
+test('asset subjects are shortened to the ends of the reference, keeping namespace and network', () => {
+  assert.equal(shortSubject('solana:mainnet-beta:So11111111111111111111111111111111111111112'), 'solana:mainnet-beta · So11…1112');
+  assert.notEqual(
+    shortSubject('solana:devnet:So11111111111111111111111111111111111111112'),
+    shortSubject('solana:mainnet-beta:So11111111111111111111111111111111111111112'),
+    'the same reference on another network is another asset',
+  );
   assert.equal(shortSubject('system:worker'), 'system:worker');
   assert.equal(shortSubject('provider:okx'), 'provider:okx');
 });

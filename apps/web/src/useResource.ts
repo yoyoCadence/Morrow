@@ -46,6 +46,7 @@ export interface PagedList<T> {
   readonly error: string | null;
   /** True while an older page exists. */
   readonly hasMore: boolean;
+  /** Reads the next page; after a failure, the page that failed (the first one if that is what failed). */
   readonly loadMore: () => void;
 }
 

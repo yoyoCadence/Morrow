@@ -4,16 +4,17 @@ import type { Tone } from './status.js';
 const ASSET_ID = /^([a-z0-9-]+):([a-z0-9-]+):(.+)$/;
 
 /**
- * A subject short enough for a table cell: an asset id keeps its network and
- * the ends of its mint ("solana · So11…1112"); anything else is shown as is.
- * The full subject is always available as a tooltip.
+ * A subject short enough for a table cell: an asset id keeps its namespace
+ * and network, which tell assets with the same reference apart, and the ends
+ * of its reference ("solana:mainnet-beta · So11…1112"); anything else is
+ * shown as is. The full subject is also the tooltip.
  */
 export function shortSubject(subject: string): string {
   const asset = ASSET_ID.exec(subject);
   if (!asset?.[3] || subject.startsWith('system:') || subject.startsWith('provider:') || subject.startsWith('portfolio:')) return subject;
   const reference = asset[3];
   const short = reference.length > 12 ? `${reference.slice(0, 4)}…${reference.slice(-4)}` : reference;
-  return `${asset[1]} · ${short}`;
+  return `${asset[1]}:${asset[2]} · ${short}`;
 }
 
 /** The raw observation an evidence reference points to (`raw_observation:1234`), or null for any other kind. */
