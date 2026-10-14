@@ -36,6 +36,13 @@ test('a name that does not resolve is DNS_FAILED, before any connection', async 
   assert.equal(check.host, 'nowhere.example');
 });
 
+test('a lookup that never answers is given up on within the same timeout', async () => {
+  const check = await checkHost('stalled.example', { lookup: () => new Promise<string>(() => undefined), timeoutMs: 300 });
+  assert.equal(check.result, 'DNS_FAILED');
+  assert.equal(check.code, 'ETIMEOUT');
+  assert.ok(check.durationMs >= 250 && check.durationMs < 3_000, `gave up after ${check.durationMs} ms, not after the 300 ms asked for`);
+});
+
 test('a port nobody listens on is CONNECT_FAILED', async () => {
   const closed = await new Promise<number>((resolve) => {
     const server = net.createServer().listen(0, '127.0.0.1', () => {

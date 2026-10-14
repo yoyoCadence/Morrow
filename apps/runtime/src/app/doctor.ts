@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import type pg from 'pg';
 import { DEFAULT_WEB_ROOT } from '../api/server.js';
@@ -78,7 +78,16 @@ export function checkBackupDir(config: Pick<AppConfig, 'backupDir'>): DoctorChec
     if (error instanceof BackupError) return { status: 'fail', name, detail: error.message };
     throw error;
   }
-  return { status: 'ok', name, detail: existsSync(config.backupDir) ? 'set and exists' : 'set; created on the first backup' };
+  // A file of that name would make the first backup fail at creating the folder.
+  let entry: ReturnType<typeof statSync>;
+  try {
+    entry = statSync(config.backupDir, { throwIfNoEntry: false });
+  } catch (error) {
+    return { status: 'fail', name, detail: `cannot be read (${error instanceof Error ? error.message : String(error)})` };
+  }
+  if (entry === undefined) return { status: 'ok', name, detail: 'set; created on the first backup' };
+  if (!entry.isDirectory()) return { status: 'fail', name, detail: 'MORROW_BACKUP_DIR names a file, not a folder' };
+  return { status: 'ok', name, detail: 'set and exists' };
 }
 
 export function checkClockSkew(clock: { readonly skew_ms: number | null; readonly samples: number }): DoctorCheck {
@@ -151,32 +160,45 @@ async function checkDatabase(pool: pg.Pool, redact: (text: string) => string, mi
           },
     );
   } catch (error) {
-    const reason = error instanceof Error ? redact(error.message) : 'unknown error';
-    checks.push({ status: 'fail', name: 'Database', detail: `unreachable (${reason}). Is it running? scripts\\pg-local.ps1 start` });
+    checks.push({
+      status: 'fail',
+      name: 'Database',
+      detail: `unreachable (${describe(error, redact)}). Is it running? scripts\\pg-local.ps1 start`,
+    });
     checks.push({ status: 'skip', name: 'Migrations', detail: 'needs the database' });
     checks.push({ status: 'skip', name: 'Clock skew', detail: 'needs the database' });
     return { checks, serverMajor };
   }
 
-  let pending = 0;
+  // Every failure from here on is a check, not an exception: a connection
+  // that drops halfway must not cost the report everything after it.
+  let current = false;
   try {
     const status = await getMigrationStatus(pool, migrationsDir);
-    pending = status.pending;
+    current = status.pending === 0;
     checks.push(
-      pending === 0
+      current
         ? { status: 'ok', name: 'Migrations', detail: `${status.applied} applied, none pending` }
-        : { status: 'fail', name: 'Migrations', detail: `${status.applied} applied, ${pending} pending: run npm run migrate` },
+        : { status: 'fail', name: 'Migrations', detail: `${status.applied} applied, ${status.pending} pending: run npm run migrate` },
     );
   } catch (error) {
-    if (!(error instanceof MigrationError)) throw error;
-    checks.push({ status: 'fail', name: 'Migrations', detail: redact(error.message) });
-    pending = -1;
+    const detail = error instanceof MigrationError ? redact(error.message) : `could not be read (${describe(error, redact)})`;
+    checks.push({ status: 'fail', name: 'Migrations', detail });
   }
-  checks.push(
-    pending === 0 ? checkClockSkew(await measureClockSkew(pool)) : { status: 'skip', name: 'Clock skew', detail: 'needs the migrations' },
-  );
+  if (!current) {
+    checks.push({ status: 'skip', name: 'Clock skew', detail: 'needs the migrations' });
+  } else {
+    try {
+      checks.push(checkClockSkew(await measureClockSkew(pool)));
+    } catch (error) {
+      checks.push({ status: 'fail', name: 'Clock skew', detail: `could not be read (${describe(error, redact)})` });
+    }
+  }
   return { checks, serverMajor };
 }
+
+const describe = (error: unknown, redact: (text: string) => string): string =>
+  error instanceof Error ? redact(error.message) : 'unknown error';
 
 async function checkRestoreDatabase(databaseUrl: string, redact: (text: string) => string): Promise<DoctorCheck> {
   try {
@@ -199,6 +221,8 @@ export interface DoctorInput {
   readonly migrationsDir?: string;
   readonly hosts?: readonly string[];
   readonly hostOptions?: HostCheckOptions;
+  /** Replaces running `<tool> --version`; for tests. */
+  readonly readToolVersion?: (tool: string) => Promise<string | null>;
 }
 
 export async function runDoctor(input: DoctorInput): Promise<DoctorCheck[]> {
@@ -210,7 +234,13 @@ export async function runDoctor(input: DoctorInput): Promise<DoctorCheck[]> {
   const database = await checkDatabase(input.pool, input.redact, input.migrationsDir);
   checks.push(...database.checks);
   checks.push(await checkRestoreDatabase(input.config.databaseUrl, input.redact));
-  for (const tool of ['pg_dump', 'pg_restore']) checks.push(checkToolVersion(tool, await toolVersion(tool), database.serverMajor));
+  for (const tool of ['pg_dump', 'pg_restore']) {
+    try {
+      checks.push(checkToolVersion(tool, await (input.readToolVersion ?? toolVersion)(tool), database.serverMajor));
+    } catch (error) {
+      checks.push({ status: 'warn', name: tool, detail: `found, but could not be run (${describe(error, input.redact)})` });
+    }
+  }
   checks.push(checkBackupDir(input.config));
   checks.push(...checkCredentials(input.config));
   if (input.network) {

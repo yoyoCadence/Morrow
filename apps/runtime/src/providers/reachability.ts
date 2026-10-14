@@ -49,45 +49,50 @@ export function classifyHandshakeError(error: unknown): Reachability {
   return 'TLS_FAILED';
 }
 
-export async function checkHost(host: string, options: HostCheckOptions = {}): Promise<HostCheck> {
+/**
+ * One deadline covers the whole check, the DNS lookup included: a resolver
+ * that stalls is exactly what this is meant to find, so it must not hold the
+ * check for the operating system's own, much longer, timeout.
+ */
+export function checkHost(host: string, options: HostCheckOptions = {}): Promise<HostCheck> {
   const started = performance.now();
-  const done = (result: Reachability, code: string | null): HostCheck => ({
-    host,
-    result,
-    code,
-    durationMs: Math.round(performance.now() - started),
-  });
   const timeoutMs = options.timeoutMs ?? 5_000;
-
-  let address: string;
-  try {
-    address = options.lookup ? await options.lookup(host) : (await dnsLookup(host)).address;
-  } catch (error) {
-    return done('DNS_FAILED', codeOf(error));
-  }
-
   return new Promise<HostCheck>((resolve) => {
-    const socket = tls.connect({
-      host: address,
-      port: options.port ?? 443,
-      // The certificate is checked against the name, not the address.
-      servername: host,
-      ...(options.ca !== undefined ? { ca: options.ca } : {}),
-    });
     let settled = false;
-    const settle = (check: HostCheck): void => {
+    let resolved = false;
+    let socket: tls.TLSSocket | null = null;
+    const settle = (result: Reachability, code: string | null): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      socket.destroy();
-      resolve(check);
+      socket?.destroy();
+      resolve({ host, result, code, durationMs: Math.round(performance.now() - started) });
     };
-    const timer = setTimeout(() => settle(done('TIMEOUT', null)), timeoutMs);
-    socket.once('secureConnect', () => {
-      // rejectUnauthorized is on, so an unverified certificate fails with an error instead; this is a second guard.
-      settle(socket.authorized ? done('OK', null) : done('TLS_UNTRUSTED', String(socket.authorizationError ?? 'UNAUTHORIZED')));
-    });
-    socket.once('error', (error) => settle(done(classifyHandshakeError(error), codeOf(error))));
+    // ETIMEOUT is what Node's resolver reports for a lookup that took too long.
+    const timer = setTimeout(() => (resolved ? settle('TIMEOUT', null) : settle('DNS_FAILED', 'ETIMEOUT')), timeoutMs);
+
+    const lookup = options.lookup ?? (async (name: string) => (await dnsLookup(name)).address);
+    lookup(host).then(
+      (address) => {
+        resolved = true;
+        if (settled) return;
+        const connection = tls.connect({
+          host: address,
+          port: options.port ?? 443,
+          // The certificate is checked against the name, not the address.
+          servername: host,
+          ...(options.ca !== undefined ? { ca: options.ca } : {}),
+        });
+        socket = connection;
+        connection.once('secureConnect', () => {
+          // rejectUnauthorized is on, so an unverified certificate fails with an error instead; this is a second guard.
+          if (connection.authorized) settle('OK', null);
+          else settle('TLS_UNTRUSTED', String(connection.authorizationError ?? 'UNAUTHORIZED'));
+        });
+        connection.once('error', (error) => settle(classifyHandshakeError(error), codeOf(error)));
+      },
+      (error: unknown) => settle('DNS_FAILED', codeOf(error)),
+    );
   });
 }
 

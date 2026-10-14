@@ -96,3 +96,53 @@ test('with --network every provider host is checked, and one that does not resol
   );
   assert.equal(byName(checks, 'Provider hosts'), undefined);
 });
+
+/** The test pool, except that any query whose text matches `failing` fails as a dropped connection would. */
+function failingOn(pool: TestDb['pool'], failing: RegExp): TestDb['pool'] {
+  return new Proxy(pool, {
+    get(target, property) {
+      if (property === 'query') {
+        return (text: unknown, ...rest: unknown[]) => {
+          const sql = typeof text === 'string' ? text : String((text as { text?: unknown })?.text ?? '');
+          if (failing.test(sql)) return Promise.reject(Object.assign(new Error('Connection terminated unexpectedly'), { code: '57P01' }));
+          return (target.query as (...args: unknown[]) => unknown)(text, ...rest);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, target);
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+}
+
+test('a query that fails after the database answered is a failed check, and the report goes on', async (t) => {
+  const db = await freshDb(t);
+  const migrations = await runDoctor({ config: config(), pool: failingOn(db.pool, /schema_migrations/), redact: (text) => text, network: false });
+  assert.deepEqual(
+    [byName(migrations, 'Migrations')?.status, byName(migrations, 'Migrations')?.detail],
+    ['fail', 'could not be read (Connection terminated unexpectedly)'],
+  );
+  assert.equal(byName(migrations, 'Clock skew')?.status, 'skip');
+  assert.ok(byName(migrations, 'Credentials: okx'), 'the checks after it still ran');
+
+  const clock = await runDoctor({ config: config(), pool: failingOn(db.pool, /clock_offset_ms/), redact: (text) => text, network: false });
+  assert.equal(byName(clock, 'Migrations')?.status, 'ok');
+  assert.deepEqual([byName(clock, 'Clock skew')?.status, byName(clock, 'Clock skew')?.detail], ['fail', 'could not be read (Connection terminated unexpectedly)']);
+  assert.ok(byName(clock, 'Backup folder'));
+});
+
+test('a client tool that is on PATH but cannot run is a warning, not a crash', async (t) => {
+  const db = await freshDb(t);
+  const checks = await runDoctor({
+    config: config(),
+    pool: db.pool,
+    redact: (text) => text,
+    network: false,
+    readToolVersion: async (tool) => {
+      if (tool === 'pg_dump') throw new Error('pg_dump failed (exit 1): libpq not found');
+      return 'pg_restore (PostgreSQL) 99.0';
+    },
+  });
+  assert.deepEqual([byName(checks, 'pg_dump')?.status, byName(checks, 'pg_dump')?.detail], ['warn', 'found, but could not be run (pg_dump failed (exit 1): libpq not found)']);
+  assert.equal(byName(checks, 'pg_restore')?.status, 'ok');
+  assert.ok(byName(checks, 'Credentials: okx'));
+});

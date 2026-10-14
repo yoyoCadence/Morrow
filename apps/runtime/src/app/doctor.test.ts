@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -78,6 +78,20 @@ test('the backup folder must be set, absolute and outside the repository', () =>
   const outside = checkBackupDir({ backupDir: path.join(os.tmpdir(), 'morrow-doctor-test-does-not-exist') });
   assert.deepEqual([outside.status, outside.detail], ['ok', 'set; created on the first backup']);
   assert.deepEqual(checkBackupDir({ backupDir: os.tmpdir() }).detail, 'set and exists');
+
+  // A file where the folder should be: the first backup would fail creating it.
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'morrow-doctor-'));
+  try {
+    const file = path.join(dir, 'not-a-folder');
+    writeFileSync(file, '');
+    assert.deepEqual(checkBackupDir({ backupDir: file }), {
+      status: 'fail',
+      name: 'Backup folder',
+      detail: 'MORROW_BACKUP_DIR names a file, not a folder',
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('clock skew: unknown is said as unknown, and the thresholds are those of health', () => {
